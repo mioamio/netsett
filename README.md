@@ -1,6 +1,6 @@
 ![20240502141438f68bcd713d](https://github.com/user-attachments/assets/4a7c70ca-2fcb-4896-afb9-3bb90bf25f33)
 
-## Основные возможности [![Русский](https://img.shields.io/badge/Русский-🇷🇺-blue)](README.ru.md)
+## Основные возможности
 
 - **Просмотр состояния сетей:** Отображение текущего IP, шлюза, MAC-адреса и аппаратного названия сетевой карты
 - **Управление IP-адресами:** Быстрая смена статического IP-адреса, маски и шлюза
@@ -18,7 +18,7 @@
 
 
 
-## Main Features [![English](https://img.shields.io/badge/English-🇬🇧-blue)](README.md)
+## Main Features
 
 - **Network status view:** Displays current IP, gateway, MAC address, and hardware name of the network adapter
 - **IP address management:** Quickly change static IP address, subnet mask, and gateway
