@@ -19,7 +19,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Command -ScriptBl
 :: Предохранитель от закрытия окна при сбое
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Скрипт завершил работу с системной ошибкой
+    echo [ERROR] Скрипт завершил работу с системной ошибкой.
     pause
 )
 exit /b
@@ -68,6 +68,7 @@ try {
     [ConsoleHelper]::SetFontSize($FontSize)
 } catch {}
 
+# Настройка размера окна
 try {
     $ui = $Host.UI.RawUI
     $bufSize = $ui.BufferSize
@@ -363,7 +364,7 @@ function Scan-LAN {
 
     if (-not $ipInfo) {
         Clear-Host
-        Write-Host (L "Адаптер не имеет действительного IP-адреса для сканирования") -ForegroundColor Red
+        Write-Host (L "Адаптер не имеет действительного IP-адреса для сканирования.") -ForegroundColor Red
         Wait-Back
         return
     }
@@ -594,7 +595,7 @@ function Manage-WiFi {
                 $target = $targetRes.Value
                 Clear-Host
                 netsh wlan connect name="$target" | Out-Null
-                Write-Host "`n$(L 'Успешно')" -ForegroundColor Green
+                Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
                 Wait-Back
             }
         }
@@ -677,7 +678,13 @@ function Main-Menu {
                 }
             }
             6 {
-                if (-not (Test-Path $ProfilePath)) { continue }
+                if (-not (Test-Path $ProfilePath)) { 
+                    Clear-Host
+                    Write-Host "`nУ тебя пока нет сохраненных профилей." -ForegroundColor Yellow
+                    Write-Host "Они появятся здесь, когда ты сохранишь настройки при установке нового IP-адреса." -ForegroundColor DarkGray
+                    Wait-Back
+                    continue 
+                }
                 $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json
                 $pItems = @()
                 foreach ($p in $profiles) { $pItems += @{Name = "$($p.Name) [$($p.IP)]"; Value = $p} }
