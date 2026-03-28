@@ -35,6 +35,8 @@ try {
     Add-Type -TypeDefinition @"
     using System;
     using System.Runtime.InteropServices;
+    using System.Net;
+    
     public class ConsoleHelper {
         [StructLayout(LayoutKind.Sequential)]
         public struct CONSOLE_FONT_INFO_EX {
@@ -64,6 +66,11 @@ try {
             }
         }
     }
+
+    public class NetAPI {
+        [DllImport("iphlpapi.dll", ExactSpelling=true)]
+        public static extern int SendARP(uint destIP, uint srcIP, byte[] macAddr, ref uint physicalAddrLen);
+    }
 "@ -ErrorAction SilentlyContinue
     [ConsoleHelper]::SetFontSize($FontSize)
 } catch {}
@@ -85,93 +92,115 @@ try {
     $ui.BufferSize = $bufSize
 } catch {}
 
-# --- Словарь ---
-$global:Lang = "EN"
-if ((Get-UICulture).TwoLetterISOLanguageName -eq "ru" -or (Get-Culture).TwoLetterISOLanguageName -eq "ru") {
-    $global:Lang = "RU"
-}
+# --- Система Локализации (Base language is English) ---
+$global:SysLang = (Get-UICulture).TwoLetterISOLanguageName
+if (-not $global:SysLang) { $global:SysLang = (Get-Culture).TwoLetterISOLanguageName }
 
-$global:EnDict = @{
-    "netsett++" = "netsett++"
-    "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Войти | [ВЛЕВО] Назад" = "[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back"
-    "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Включить | [ВЛЕВО] Отключить | [ESC] Назад" = "[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back"
-    "[ВЛЕВО] Назад" = "[LEFT] Go Back"
-    "Назад" = "Back"
-    "Да" = "Yes"
-    "Нет" = "No"
-    "Выход" = "Exit"
-    "Показать текущие настройки сети" = "Show current network settings"
-    "Замена основного IP-адреса" = "Change primary IP address"
-    "Оставить старый IP и добавить еще один" = "Add secondary IP address"
-    "Управление DHCP (Включить / Отключить / Обновить)" = "Manage DHCP (Enable / Disable / Renew)"
-    "Полный сброс адаптера" = "Full adapter reset"
-    "Сохраненные профили" = "Saved profiles"
-    "Включение / Отключение сетевых адаптеров" = "Enable / Disable network adapters"
-    "Управление Wi-Fi (Поиск и подключение)" = "Wi-Fi Management (Search & Connect)"
-    "Подмена MAC-адреса адаптера (Spoofing)" = "MAC Address Spoofing"
-    "LAN Сканер (Поиск устройств в сети)" = "LAN Scanner (Network discovery)"
-    "ОТКЛЮЧЕН" = "DISABLED"
-    "НЕТ КАБЕЛЯ" = "NO CABLE"
-    "РАБОТАЕТ" = "WORKING"
-    "Автоматически (DHCP)" = "Automatic (DHCP)"
-    "Вручную (Статика)" = "Manual (Static)"
-    "Шлюз" = "Default Gateway"
-    "Отсутствует" = "None"
-    "Текущий IP-адрес" = "Current IP Address"
-    "Сетевой адаптер" = "Network Adapter"
-    "Устройство" = "Device Hardware"
-    "Режим работы" = "Operating Mode"
-    "Сетевых адаптеров в системе не найдено" = "No network adapters found in the system"
-    "Выбери адаптер:" = "Select an adapter:"
-    "Включаем адаптер" = "Enabling adapter"
-    "Отключаем адаптер" = "Disabling adapter"
-    "Введи IP-адрес (например 192.168.1.50)" = "Enter IP address (e.g. 192.168.1.50)"
-    "Введи маску подсети" = "Enter subnet mask (e.g. 24)"
-    "Введи IP-адрес роутера/шлюза (Enter - пропустить)" = "Enter Gateway IP (Enter to skip)"
-    "Сохранить эти настройки как профиль?" = "Save these settings as a profile?"
-    "Придумай название для профиля" = "Enter a name for the profile"
-    "Устанавливаем новый IP-адрес" = "Setting new IP address"
-    "Настройки успешно применены" = "Settings successfully applied"
-    "Адаптер полностью очищен" = "Adapter settings cleared successfully"
-    "Ты УВЕРЕН, что хочешь удалить все настройки?" = "Are you SURE you want to clear all settings?"
-    "Включить DHCP" = "Enable DHCP"
-    "Отключить DHCP" = "Disable DHCP"
-    "Перезапустить DHCP" = "Renew DHCP"
-    "Показать доступные сети вокруг" = "Show available networks"
-    "Подключиться к сохраненной сети" = "Connect to saved network"
-    "Введи пароль от сети (или нажми Enter, если без пароля)" = "Enter network password (or press Enter if open)"
-    "Создаем новый профиль сети..." = "Creating new network profile..."
-    "Успешно!" = "Success!"
-    "Ввести новый MAC вручную" = "Enter new MAC manually"
-    "Сгенерировать случайный MAC" = "Generate random MAC"
-    "Вернуть родной заводской MAC" = "Restore original hardware MAC"
-    "Сканируем локальную сеть: " = "Scanning local network: "
-    "Определение имен устройств..." = "Resolving hostnames..."
-    "Пожалуйста, подожди пару секунд..." = "Please wait a few seconds..."
-    "=== Найденные устройства ===" = "=== Found Devices ==="
-    "=== Активные подключения ===" = "=== Active Connections ==="
-    "=== Неактивные сети ===" = "=== Inactive Networks ==="
-    "Отключено" = "Disabled"
-    "Кабель не подключен" = "Cable disconnected"
-    "Состояние" = "Status"
-    "Нет отключенных адаптеров" = "No disabled adapters found"
-    "IP-адрес" = "IP Address"
-    "MAC-адрес" = "MAC Address"
-    "Имя в сети" = "Hostname"
-    "Тип/Инфо" = "Device Type/Info"
-    "Этот компьютер" = "This PC"
-    "Роутер / Точка доступа" = "Router / Access Point"
-    "Смартфон / Планшет (Случайный MAC)" = "Smartphone / Tablet (Private MAC)"
-    "Принтер" = "Printer"
-    "Неизвестное устройство" = "Unknown Device"
-    "Адаптер не имеет действительного IP-адреса для сканирования." = "Adapter does not have a valid IP for scanning."
-    "Загрузить и применить профиль" = "Load and apply a profile"
-    "Эта сеть уже сохранена, подключаемся..." = "This network is already saved, connecting..."
+$global:RuDict = @{
+    "[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Войти | [ВЛЕВО] Назад"
+    "[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Включить | [ВЛЕВО] Отключить | [ESC] Назад"
+    "[LEFT] Go Back" = "[ВЛЕВО] Назад"
+    "Back" = "Назад"
+    "Yes" = "Да"
+    "No" = "Нет"
+    "Exit" = "Выход"
+    
+    "Show current network settings (Live)" = "Показать текущие настройки сети (Live)"
+    "Change primary IP address" = "Замена основного IP-адреса"
+    "Add secondary IP address" = "Оставить старый IP и добавить еще один"
+    "Manage DHCP (Enable / Disable / Renew)" = "Управление DHCP (Включить / Отключить / Обновить)"
+    "Full adapter reset" = "Полный сброс адаптера"
+    "Saved profiles" = "Сохраненные профили"
+    "Enable / Disable network adapters" = "Включение / Отключение сетевых адаптеров"
+    "Wi-Fi Management (Search & Connect)" = "Управление Wi-Fi (Поиск и подключение)"
+    "MAC Address Spoofing" = "Подмена MAC-адреса адаптера (Spoofing)"
+    "LAN Scanner (Real-Time)" = "LAN Сканер (В реальном времени)"
+    
+    "ADAPT_DISABLED" = "ОТКЛЮЧЕН"
+    "ADAPT_NO_CABLE" = "НЕТ КАБЕЛЯ"
+    "ADAPT_WORKING"  = "РАБОТАЕТ"
+    
+    "Automatic (DHCP)" = "Автоматически (DHCP)"
+    "Manual (Static)" = "Вручную (Статика)"
+    "Default Gateway" = "Шлюз"
+    "None" = "Отсутствует"
+    "Current IP Address" = "Текущий IP-адрес"
+    "Network Adapter" = "Сетевой адаптер"
+    "Device Hardware" = "Устройство"
+    "Operating Mode" = "Режим работы"
+    
+    "No network adapters found in the system" = "Сетевых адаптеров в системе не найдено"
+    "Select an adapter:" = "Выбери адаптер:"
+    "Enabling adapter" = "Включаем адаптер"
+    "Disabling adapter" = "Отключаем адаптер"
+    
+    "Enter IP address (e.g. 192.168.1.50)" = "Введи IP-адрес (например 192.168.1.50)"
+    "Enter subnet mask (e.g. 24)" = "Введи маску подсети (например 24)"
+    "Enter Gateway IP (Enter to skip)" = "Введи IP-адрес роутера/шлюза (Enter - пропустить)"
+    "Save these settings as a profile?" = "Сохранить эти настройки как профиль?"
+    "Enter a name for the profile" = "Придумай название для профиля"
+    "Settings successfully applied" = "Настройки успешно применены"
+    "Are you SURE you want to clear all settings?" = "Ты УВЕРЕН, что хочешь удалить все настройки?"
+    "Adapter settings cleared successfully" = "Адаптер полностью очищен"
+    
+    "Enable DHCP" = "Включить DHCP"
+    "Disable DHCP" = "Отключить DHCP"
+    "Renew DHCP" = "Перезапустить DHCP"
+    "Success!" = "Успешно!"
+    
+    "Show available networks" = "Показать доступные сети вокруг"
+    "Connect to saved network" = "Подключиться к сохраненной сети"
+    "This network is already saved, connecting..." = "Эта сеть уже сохранена, подключаемся..."
+    "Enter network password (or press Enter if open)" = "Введи пароль от сети (или нажми Enter, если без пароля)"
+    "Creating new network profile..." = "Создаем новый профиль сети..."
+    
+    "Enter new MAC manually" = "Ввести новый MAC вручную"
+    "Generate random MAC" = "Сгенерировать случайный MAC"
+    "Restore original hardware MAC" = "Вернуть родной заводской MAC"
+    "Enter new MAC (no dashes, e.g. 001122334455)" = "Введи новый MAC (без тире, например 001122334455)"
+    "Applying settings..." = "Применяем настройки..."
+    
+    "Scanning local network: " = "Сканируем локальную сеть: "
+    "Performing fast sweep (1-2 sec)..." = "Выполняется быстрый опрос (1-2 сек)..."
+    "=== Found Devices ===" = "=== Найденные устройства ==="
+    " Real-time update... Press [LEFT] to exit" = " Обновление в реальном времени... Нажми [ВЛЕВО] для выхода"
+    "=== Active Connections ===" = "=== Активные подключения ==="
+    "=== Inactive Networks ===" = "=== Неактивные сети ==="
+    "No connected and configured networks found" = "Подключенных и настроенных сетей не найдено"
+    "Disabled" = "Отключено"
+    "Cable disconnected" = "Кабель не подключен"
+    "Status" = "Состояние"
+    "No disabled adapters found" = "Нет отключенных адаптеров"
+    
+    "IP Address" = "IP-адрес"
+    "MAC Address" = "MAC-адрес"
+    "Hostname" = "Имя в сети"
+    "Device Type/Info" = "Тип/Инфо"
+    
+    "This PC" = "Этот компьютер"
+    "Router / Access Point" = "Роутер / Точка доступа"
+    "Smartphone / Tablet (Private MAC)" = "Смартфон / Планшет (Случайный MAC)"
+    "Printer" = "Принтер"
+    "Unknown Device" = "Неизвестное устройство"
+    "Adapter does not have a valid IP for scanning." = "Адаптер не имеет действительного IP-адреса для сканирования."
+    
+    "Load and apply a profile" = "Загрузить и применить профиль"
+    "You don't have any saved profiles yet." = "У тебя пока нет сохраненных профилей."
+    "They will appear here when you save settings while applying a new IP." = "Они появятся здесь, когда ты сохранишь настройки при установке нового IP-адреса."
 }
 
 function L([string]$text) {
-    if ($global:Lang -eq "EN" -and $global:EnDict.ContainsKey($text)) { return $global:EnDict[$text] }
+    if ($global:SysLang -eq "ru" -and $global:RuDict.ContainsKey($text)) {
+        return $global:RuDict[$text]
+    }
     return $text
+}
+
+# --- Функция для Real-Time отрисовки без мерцания ---
+function Write-LineClear([string]$Text, [string]$FgColor, [string]$BgColor="Black") {
+    $padLen = $Host.UI.WindowSize.Width - 1 - $Text.Length
+    if ($padLen -lt 0) { $padLen = 0 }
+    Write-Host "$Text$(' ' * $padLen)" -ForegroundColor $FgColor -BackgroundColor $BgColor
 }
 
 # --- Ядро: Умное Интерактивное Меню ---
@@ -193,9 +222,9 @@ function Show-Menu {
     Write-Host "==========================================================" -ForegroundColor Cyan
     Write-Host ""
     if ($IsToggleMenu) {
-        Write-Host " $(L '[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Включить | [ВЛЕВО] Отключить | [ESC] Назад')" -ForegroundColor DarkGray
+        Write-Host " $(L '[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back')" -ForegroundColor DarkGray
     } else {
-        Write-Host " $(L '[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Войти | [ВЛЕВО] Назад')" -ForegroundColor DarkGray
+        Write-Host " $(L '[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back')" -ForegroundColor DarkGray
     }
     Write-Host ""
 
@@ -207,24 +236,19 @@ function Show-Menu {
         
         for ($i = 0; $i -lt $Items.Count; $i++) {
             $isBackAction = ($Items[$i].Value -eq 'BACK' -or $Items[$i].Value -eq 0)
-            
             $prefix = "    "
             $fg = "Gray"
             $bg = "Black"
             
             if ($i -eq $selected) {
-                # Стрелка влево для кнопок возврата/выхода
                 if ($isBackAction) { $prefix = "  < " } else { $prefix = "  > " }
                 $fg = "Black"
                 $bg = "Cyan"
             }
             
             $text = "$prefix$($Items[$i].Name) "
-            
-            # Печатаем выделенную строчку
             Write-Host $text -ForegroundColor $fg -BackgroundColor $bg -NoNewline
             
-            # Закрашиваем остаток строки черным (убираем хвосты)
             $padLen = $maxWidth - $text.Length
             if ($padLen -gt 0) {
                 Write-Host (" " * $padLen) -ForegroundColor Black -BackgroundColor Black
@@ -242,27 +266,21 @@ function Show-Menu {
             $selected = ($selected + 1) % $Items.Count
         } elseif ($key -eq 'RightArrow' -or $key -eq 'Enter') {
             $val = $Items[$selected].Value
-            if ($val -eq 'BACK' -or $val -eq 0) { 
-                return @{ Action = 'Back'; Value = $val; Index = $selected } 
-            }
-            if ($IsToggleMenu) { 
-                return @{ Action = 'Enable'; Value = $val; Index = $selected } 
-            } 
+            if ($val -eq 'BACK' -or $val -eq 0) { return @{ Action = 'Back'; Value = $val; Index = $selected } }
+            if ($IsToggleMenu) { return @{ Action = 'Enable'; Value = $val; Index = $selected } } 
             return @{ Action = 'Enter'; Value = $val; Index = $selected }
-            
         } elseif ($key -eq 'LeftArrow' -or $key -eq 'Escape' -or $key -eq 'Backspace') {
             $val = $Items[$selected].Value
             if ($IsToggleMenu -and $key -eq 'LeftArrow' -and $val -ne 'BACK' -and $val -ne 0) { 
                 return @{ Action = 'Disable'; Value = $val; Index = $selected } 
             } 
-            # Во всех остальных случаях левая стрелка / Esc работает как Назад
             return @{ Action = 'Back'; Value = $null; Index = $selected }
         }
     }
 }
 
 function Wait-Back {
-    Write-Host "`n$(L '[ВЛЕВО] Назад')" -ForegroundColor DarkGray
+    Write-Host "`n$(L '[LEFT] Go Back')" -ForegroundColor DarkGray
     while ($true) {
         $key = [System.Console]::ReadKey($true).Key
         if ($key -match 'LeftArrow|Escape|Enter|RightArrow') { break }
@@ -282,15 +300,15 @@ function Get-AdapterMenu {
     $adapters = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' })
     if ($adapters.Count -eq 0) { 
         Clear-Host
-        Write-Host (L "Сетевых адаптеров в системе не найдено") -ForegroundColor Red
+        Write-Host (L "No network adapters found in the system") -ForegroundColor Red
         Start-Sleep 2; return $null 
     }
     $items = @()
     foreach ($a in $adapters) {
-        $status = if ($a.Status -eq 'Disabled') { L "ОТКЛЮЧЕН" } elseif ($a.Status -eq 'Disconnected') { L "НЕТ КАБЕЛЯ" } else { L "РАБОТАЕТ" }
+        $status = if ($a.Status -eq 'Disabled') { L "ADAPT_DISABLED" } elseif ($a.Status -eq 'Disconnected') { L "ADAPT_NO_CABLE" } else { L "ADAPT_WORKING" }
         $items += @{ Name = "$($a.InterfaceAlias) [$status]"; Value = $a.InterfaceAlias }
     }
-    $items += @{ Name = L "Назад"; Value = 'BACK' }
+    $items += @{ Name = L "Back"; Value = 'BACK' }
     
     $res = Show-Menu -Title $Title -Items $items
     if ($res.Action -eq 'Back') { return $null }
@@ -308,53 +326,114 @@ function Ensure-AdapterEnabled {
     }
 }
 
-# --- Модули ---
+# --- Модули (Real-Time engine) ---
 function Show-Status {
     Clear-Host
-    Write-Host (L "=== Активные подключения ===") -ForegroundColor Cyan
-    Write-Host "------------------------------------" -ForegroundColor DarkCyan
-    $found = $false
-    Get-NetIPConfiguration | Where-Object { $_.IPv4Address } | ForEach-Object {
-        $found = $true
-        $ifaceAlias = $_.InterfaceAlias
-        $ad = Get-NetAdapter -Name $ifaceAlias -ErrorAction SilentlyContinue
-        $dhcpInfo = Get-NetIPInterface -InterfaceAlias $ifaceAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue
-        $dhcpStr = if ($dhcpInfo.Dhcp -eq 'Enabled') { L "Автоматически (DHCP)" } else { L "Вручную (Статика)" }
+    while ($true) {
+        [Console]::SetCursorPosition(0, 0)
+        Write-LineClear (L "=== Active Connections ===") "Cyan"
+        Write-LineClear "------------------------------------" "DarkCyan"
+        $found = $false
+        Get-NetIPConfiguration | Where-Object { $_.IPv4Address } | ForEach-Object {
+            $found = $true
+            $ifaceAlias = $_.InterfaceAlias
+            $ad = Get-NetAdapter -Name $ifaceAlias -ErrorAction SilentlyContinue
+            $dhcpInfo = Get-NetIPInterface -InterfaceAlias $ifaceAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            $dhcpStr = if ($dhcpInfo.Dhcp -eq 'Enabled') { L "Automatic (DHCP)" } else { L "Manual (Static)" }
 
-        Write-Host "$(L 'Сетевой адаптер')  : $ifaceAlias" -ForegroundColor Cyan
-        Write-Host "$(L 'Устройство')       : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
-        Write-Host "$(L 'MAC-адрес')        : $($ad.MacAddress)" -ForegroundColor DarkGray
-        Write-Host "$(L 'Режим работы')     : $dhcpStr" -ForegroundColor Yellow
-        Write-Host "$(L 'Текущий IP-адрес') : $($_.IPv4Address.IPAddress)" -ForegroundColor Green
-        if ($_.IPv4DefaultGateway) { Write-Host "$(L 'Шлюз')             : $($_.IPv4DefaultGateway.NextHop)" -ForegroundColor Green } 
-        else { Write-Host "$(L 'Шлюз')             : $(L 'Отсутствует')" -ForegroundColor Red }
-        Write-Host "------------------------------------" -ForegroundColor DarkCyan
-    }
-    if (-not $found) { Write-Host (L "Подключенных и настроенных сетей не найдено") -ForegroundColor Red }
-    
-    # ВОЗВРАЩЕН БЛОК НЕАКТИВНЫХ СЕТЕЙ
-    Write-Host ""
-    Write-Host (L "=== Неактивные сети ===") -ForegroundColor Cyan
-    Write-Host "------------------------------------" -ForegroundColor DarkCyan
-    $inactive = Get-NetAdapter | Where-Object { $_.Status -ne 'Up' -and $_.InterfaceDescription -notlike '*Loopback*' }
-    if ($inactive) {
-        foreach ($a in $inactive) {
-            $reason = if ($a.Status -eq 'Disabled') { L "Отключено" } elseif ($a.Status -eq 'Disconnected') { L "Кабель не подключен" } else { $a.Status }
-            Write-Host " $($a.InterfaceAlias)" -ForegroundColor Gray
-            Write-Host "    $(L 'Устройство')   : $($a.InterfaceDescription)" -ForegroundColor DarkGray
-            Write-Host "    $(L 'Состояние')    : $reason" -ForegroundColor Red
-            Write-Host "------------------------------------" -ForegroundColor DarkCyan
+            Write-LineClear "$(L 'Network Adapter')  : $ifaceAlias" "Cyan"
+            Write-LineClear "$(L 'Device Hardware')  : $($ad.InterfaceDescription)" "DarkGray"
+            Write-LineClear "$(L 'MAC Address')      : $($ad.MacAddress)" "DarkGray"
+            Write-LineClear "$(L 'Operating Mode')   : $dhcpStr" "Yellow"
+            Write-LineClear "$(L 'Current IP Address') : $($_.IPv4Address.IPAddress)" "Green"
+            if ($_.IPv4DefaultGateway) { Write-LineClear "$(L 'Default Gateway')  : $($_.IPv4DefaultGateway.NextHop)" "Green" } 
+            else { Write-LineClear "$(L 'Default Gateway')  : $(L 'None')" "Red" }
+            Write-LineClear "------------------------------------" "DarkCyan"
         }
-    } else {
-        Write-Host " $(L 'Нет отключенных адаптеров')" -ForegroundColor DarkGray
-        Write-Host "------------------------------------" -ForegroundColor DarkCyan
-    }
+        if (-not $found) { Write-LineClear (L "No connected and configured networks found") "Red" }
+        
+        Write-LineClear "" "Black"
+        Write-LineClear (L "=== Inactive Networks ===") "Cyan"
+        Write-LineClear "------------------------------------" "DarkCyan"
+        $inactive = Get-NetAdapter | Where-Object { $_.Status -ne 'Up' -and $_.InterfaceDescription -notlike '*Loopback*' }
+        if ($inactive) {
+            foreach ($a in $inactive) {
+                $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
+                Write-LineClear " $($a.InterfaceAlias)" "Gray"
+                Write-LineClear "    $(L 'Device Hardware'): $($a.InterfaceDescription)" "DarkGray"
+                Write-LineClear "    $(L 'Status')         : $reason" "Red"
+                Write-LineClear "------------------------------------" "DarkCyan"
+            }
+        } else {
+            Write-LineClear " $(L 'No disabled adapters found')" "DarkGray"
+            Write-LineClear "------------------------------------" "DarkCyan"
+        }
 
-    Wait-Back
+        Write-LineClear "" "Black"
+        Write-LineClear "$(L '[LEFT] Go Back')" "DarkGray"
+
+        # Зачищаем остаток экрана
+        $currentTop = [Console]::CursorTop
+        while ($currentTop -lt $Host.UI.WindowSize.Height - 1) {
+            Write-LineClear "" "Black"
+            $currentTop++
+        }
+
+        $breakLoop = $false
+        for ($i=0; $i -lt 10; $i++) {
+            if ([Console]::KeyAvailable) {
+                $k = [Console]::ReadKey($true).Key
+                if ($k -match 'LeftArrow|Escape|Backspace') { $breakLoop = $true; break }
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        if ($breakLoop) { break }
+    }
+}
+
+function Get-MacByIP([string]$IP) {
+    try {
+        $ipAddr = [System.Net.IPAddress]::Parse($IP)
+        $ipBytes = $ipAddr.GetAddressBytes()
+        $destIP = [BitConverter]::ToUInt32($ipBytes, 0)
+        
+        $macAddr = New-Object byte[] 6
+        $macLen = [uint32]6
+        
+        $res = [NetAPI]::SendARP($destIP, 0, $macAddr, [ref]$macLen)
+        if ($res -eq 0) {
+            $hex = $macAddr | ForEach-Object { $_.ToString("X2") }
+            return $hex -join "-"
+        }
+    } catch {}
+    return "00-00-00-00-00-00"
+}
+
+function Get-VendorByMac([string]$Mac) {
+    $prefix = ($Mac.Replace("-", "").Substring(0,6)).ToUpper()
+    $vendors = @{
+        "001CB3"="Apple"; "002500"="Apple"; "28CFE9"="Apple"; "8C8590"="Apple"; "F8FFC2"="Apple"
+        "B4F1CB"="Apple"; "C8B5B7"="Apple"; "3C0754"="Apple"; "4098AD"="Apple"; "0010FA"="Apple"
+        "001451"="Apple"; "0016CB"="Apple"; "CCB8A8"="Apple"; "D4619D"="Apple"; "E0B52D"="Apple"
+        "001A11"="Google"; "F88A5E"="Google"; "3C5AB4"="Google"
+        "001E10"="Cisco"; "0014F2"="Cisco"; "001A6C"="Cisco"; "00259C"="Cisco"
+        "001999"="Fujitsu"; "000B5D"="Fujitsu"
+        "0017C4"="Asus"; "001A92"="Asus"; "001E8C"="Asus"; "14DDA9"="Asus"; "04D4C4"="Asus"
+        "000D3A"="Microsoft"; "00125A"="Microsoft"; "0017FA"="Microsoft"; "281878"="Microsoft"; "C8F650"="Microsoft"
+        "001132"="Synology"; "00A0C6"="Qualcomm"
+        "E48D8C"="MikroTik"; "000C42"="MikroTik"; "D4CA6D"="MikroTik"
+        "C04A00"="TP-Link"; "E848B8"="TP-Link"; "F81A67"="TP-Link"; "D807B6"="TP-Link"; "503EAA"="TP-Link"; "B0BE76"="TP-Link"
+        "080027"="VirtualBox"; "000569"="VMware"; "000C29"="VMware"; "005056"="VMware"
+        "001BDC"="Samsung"; "00215D"="Samsung"; "0023D6"="Samsung"; "CCB11A"="Samsung"; "D022BE"="Samsung"
+        "002268"="Xiaomi"; "009ECA"="Xiaomi"; "286C07"="Xiaomi"; "38A4ED"="Xiaomi"; "7C49EB"="Xiaomi"
+        "001A4B"="HP"; "001E0B"="HP"; "002264"="HP"
+    }
+    if ($vendors.ContainsKey($prefix)) { return $vendors[$prefix] }
+    return ""
 }
 
 function Scan-LAN {
-    $iface = Get-AdapterMenu (L "Выбери адаптер:")
+    $iface = Get-AdapterMenu (L "Select an adapter:")
     if (-not $iface) { return }
     Ensure-AdapterEnabled $iface
 
@@ -364,19 +443,20 @@ function Scan-LAN {
 
     if (-not $ipInfo) {
         Clear-Host
-        Write-Host (L "Адаптер не имеет действительного IP-адреса для сканирования.") -ForegroundColor Red
+        Write-Host (L "Adapter does not have a valid IP for scanning.") -ForegroundColor Red
         Wait-Back
         return
     }
 
     $ipStr = $ipInfo.IPAddress
     $baseIP = $ipStr.Substring(0, $ipStr.LastIndexOf('.'))
+    $localMac = (Get-NetAdapter -InterfaceAlias $iface).MacAddress.Replace(':', '-')
     
     Clear-Host
-    Write-Host "$(L 'Сканируем локальную сеть: ') $baseIP.1 - $baseIP.254" -ForegroundColor Cyan
-    Write-Host (L "Пожалуйста, подожди пару секунд...") -ForegroundColor Yellow
+    Write-Host "$(L 'Scanning local network: ') $baseIP.1 - $baseIP.254" -ForegroundColor Cyan
+    Write-Host (L "Performing fast sweep (1-2 sec)...") -ForegroundColor Yellow
 
-    # Асинхронный быстрый пинг
+    # Быстрый пинг Sweep
     $pingers = @()
     $tasks = @()
     foreach ($i in 1..254) {
@@ -393,66 +473,81 @@ function Scan-LAN {
         $pingers[$i].Dispose()
     }
 
-    # Асинхронный резолв имен (DNS/NetBIOS)
-    Write-Host (L "Определение имен устройств...") -ForegroundColor DarkGray
+    # Запускаем Async DNS
     $dnsTasks = @{}
     foreach ($a_ip in $activeIPs) {
         $dnsTasks[$a_ip] = [System.Net.Dns]::GetHostEntryAsync($a_ip)
     }
-    try { [System.Threading.Tasks.Task]::WaitAll([array]$dnsTasks.Values, 2000) | Out-Null } catch {}
-
-    $arpTable = arp -a
     
+    # Real-Time цикл отрисовки сканера
     Clear-Host
-    Write-Host (L "=== Найденные устройства ===") -ForegroundColor Cyan
-    Write-Host "----------------------------------------" -ForegroundColor DarkCyan
-    
-    foreach ($a_ip in $activeIPs) {
-        # Поиск MAC-адреса
-        $mac = "00-00-00-00-00-00"
-        $arpMatch = $arpTable | Select-String "\s+$([regex]::Escape($a_ip))\s+([0-9a-fA-F-]{17})\s+"
-        if ($arpMatch) {
-            $mac = $arpMatch.Matches[0].Groups[2].Value.ToUpper().Replace(':', '-')
-        } elseif ($a_ip -eq $ipStr) {
-            $mac = (Get-NetAdapter -InterfaceAlias $iface).MacAddress.Replace(':', '-')
+    while ($true) {
+        [Console]::SetCursorPosition(0, 0)
+        Write-LineClear (L "=== Found Devices ===") "Cyan"
+        Write-LineClear (L " Real-time update... Press [LEFT] to exit") "DarkGray"
+        Write-LineClear "--------------------------------------------------------" "DarkCyan"
+        
+        foreach ($a_ip in $activeIPs) {
+            # 1. Точный MAC через API
+            $mac = "00-00-00-00-00-00"
+            if ($a_ip -eq $ipStr) { $mac = $localMac }
+            else { $mac = Get-MacByIP $a_ip }
+
+            # 2. Имя из DNS
+            $hostName = ""
+            if ($dnsTasks[$a_ip].IsCompleted -and -not $dnsTasks[$a_ip].IsFaulted) {
+                $hostName = $dnsTasks[$a_ip].Result.HostName
+            }
+            if (-not $hostName) { $hostName = L "Unknown Device" }
+
+            # 3. Эвристика устройства
+            $devType = "PC / IoT"
+            if ($a_ip -eq $ipStr) { 
+                $devType = L "This PC" 
+            } elseif ($a_ip -eq $gwIP) { 
+                $devType = L "Router / Access Point" 
+            } else {
+                try {
+                    $firstOctet = [convert]::ToInt32($mac.Substring(0,2), 16)
+                    if (($firstOctet -band 2) -eq 2) {
+                        $devType = L "Smartphone / Tablet (Private MAC)"
+                    } else {
+                        $vendor = Get-VendorByMac $mac
+                        if ($vendor) { $devType = "$vendor Device" }
+                    }
+                } catch {}
+                
+                if ($hostName -match "(?i)iphone|ipad|macbook|apple") { $devType = "Apple Device" }
+                elseif ($hostName -match "(?i)android|galaxy|samsung|xiaomi|redmi") { $devType = "Android Device" }
+                elseif ($hostName -match "(?i)tv|kdl|bravia|webos|tizen") { $devType = "Smart TV" }
+                elseif ($hostName -match "(?i)printer|hp-|epson|canon|brother") { $devType = L "Printer" }
+            }
+
+            Write-LineClear "$(L 'IP Address')       : $a_ip" "Green"
+            Write-LineClear "$(L 'MAC Address')      : $mac" "Gray"
+            Write-LineClear "$(L 'Hostname')         : $hostName" "White"
+            Write-LineClear "$(L 'Device Type/Info') : $devType" "Yellow"
+            Write-LineClear "--------------------------------------------------------" "DarkCyan"
+        }
+        
+        # Очистка хвоста экрана
+        $currentTop = [Console]::CursorTop
+        while ($currentTop -lt $Host.UI.WindowSize.Height - 1) {
+            Write-LineClear "" "Black"
+            $currentTop++
         }
 
-        # Получение имени
-        $hostName = ""
-        if ($dnsTasks[$a_ip].IsCompleted -and -not $dnsTasks[$a_ip].IsFaulted) {
-            $hostName = $dnsTasks[$a_ip].Result.HostName
+        # Ждем и слушаем кнопки
+        $breakLoop = $false
+        for ($i=0; $i -lt 15; $i++) {
+            if ([Console]::KeyAvailable) {
+                $k = [Console]::ReadKey($true).Key
+                if ($k -match 'LeftArrow|Escape|Backspace') { $breakLoop = $true; break }
+            }
+            Start-Sleep -Milliseconds 100
         }
-        if (-not $hostName) { $hostName = L "Неизвестное устройство" }
-
-        # Эвристика устройства (Умный анализ)
-        $devType = "PC / IoT / Гаджет"
-        if ($a_ip -eq $ipStr) { 
-            $devType = L "Этот компьютер" 
-        } elseif ($a_ip -eq $gwIP) { 
-            $devType = L "Роутер / Точка доступа" 
-        } else {
-            # 1. Проверка на случайный (Private) MAC от iOS/Android
-            try {
-                $firstOctet = [convert]::ToInt32($mac.Substring(0,2), 16)
-                if (($firstOctet -band 2) -eq 2) {
-                    $devType = L "Смартфон / Планшет (Случайный MAC)"
-                }
-            } catch {}
-            
-            # 2. Анализ по имени
-            if ($hostName -match "(?i)iphone|ipad|macbook|apple") { $devType = "Apple Device" }
-            elseif ($hostName -match "(?i)android|galaxy|samsung|xiaomi|redmi") { $devType = "Android Device" }
-            elseif ($hostName -match "(?i)tv|kdl|bravia|webos|tizen") { $devType = "Smart TV" }
-            elseif ($hostName -match "(?i)printer|hp-|epson|canon|brother") { $devType = L "Принтер" }
-        }
-
-        Write-Host "$(L 'IP-адрес')       : $a_ip" -ForegroundColor Green
-        Write-Host "$(L 'MAC-адрес')      : $mac" -ForegroundColor Gray
-        Write-Host "$(L 'Имя в сети')     : $hostName" -ForegroundColor White
-        Write-Host "$(L 'Тип/Инфо')       : $devType" -ForegroundColor Yellow
-        Write-Host "----------------------------------------" -ForegroundColor DarkCyan
+        if ($breakLoop) { break }
     }
-    Wait-Back
 }
 
 function Manage-Adapters {
@@ -461,22 +556,22 @@ function Manage-Adapters {
         $adapters = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' })
         $items = @()
         foreach ($a in $adapters) {
-            $status = if ($a.Status -eq 'Disabled') { L 'ОТКЛЮЧЕН' } elseif ($a.Status -eq 'Disconnected') { L 'НЕТ КАБЕЛЯ' } else { L 'РАБОТАЕТ' }
+            $status = if ($a.Status -eq 'Disabled') { L 'ADAPT_DISABLED' } elseif ($a.Status -eq 'Disconnected') { L 'ADAPT_NO_CABLE' } else { L 'ADAPT_WORKING' }
             $items += @{ Name = "$($a.InterfaceAlias) [$status]"; Value = $a.InterfaceAlias }
         }
-        $items += @{ Name = L "Назад"; Value = 'BACK' }
+        $items += @{ Name = L "Back"; Value = 'BACK' }
         
-        $res = Show-Menu -Title (L "Включение / Отключение сетевых адаптеров") -Items $items -IsToggleMenu -DefaultIndex $idx
+        $res = Show-Menu -Title (L "Enable / Disable network adapters") -Items $items -IsToggleMenu -DefaultIndex $idx
         $idx = $res.Index
         if ($res.Action -eq 'Back') { break }
         
         Clear-Host
         if ($res.Action -eq 'Enable') {
-            Write-Host "`n$(L 'Включаем адаптер') '$($res.Value)'..." -ForegroundColor Cyan
+            Write-Host "`n$(L 'Enabling adapter') '$($res.Value)'..." -ForegroundColor Cyan
             Enable-NetAdapter -Name $res.Value -Confirm:$false
             Start-Sleep 2
         } elseif ($res.Action -eq 'Disable') {
-            Write-Host "`n$(L 'Отключаем адаптер') '$($res.Value)'..." -ForegroundColor Cyan
+            Write-Host "`n$(L 'Disabling adapter') '$($res.Value)'..." -ForegroundColor Cyan
             Disable-NetAdapter -Name $res.Value -Confirm:$false
             Start-Sleep 2
         }
@@ -496,8 +591,8 @@ function Set-StaticIP {
             Remove-NetRoute -DestinationPrefix "0.0.0.0/0" -InterfaceAlias $InterfaceAlias -ErrorAction SilentlyContinue
             New-NetRoute -InterfaceAlias $InterfaceAlias -DestinationPrefix "0.0.0.0/0" -NextHop $DefaultGateway -ErrorAction Stop | Out-Null
         }
-        Write-Host "`n$(L 'Настройки успешно применены')" -ForegroundColor Green
-    } catch { Write-Host "`nОшибка: $_" -ForegroundColor Red }
+        Write-Host "`n$(L 'Settings successfully applied')" -ForegroundColor Green
+    } catch { Write-Host "`nError: $_" -ForegroundColor Red }
     Wait-Back
 }
 
@@ -505,17 +600,17 @@ function Manage-DHCP {
     $idx = 0
     while ($true) {
         $items = @(
-            @{Name = L "Включить DHCP"; Value = "1"}
-            @{Name = L "Отключить DHCP"; Value = "2"}
-            @{Name = L "Перезапустить DHCP"; Value = "3"}
-            @{Name = L "Назад"; Value = "BACK"}
+            @{Name = L "Enable DHCP"; Value = "1"}
+            @{Name = L "Disable DHCP"; Value = "2"}
+            @{Name = L "Renew DHCP"; Value = "3"}
+            @{Name = L "Back"; Value = "BACK"}
         )
-        $actRes = Show-Menu -Title (L "Управление DHCP (Включить / Отключить / Обновить)") -Items $items -DefaultIndex $idx
+        $actRes = Show-Menu -Title (L "Manage DHCP (Enable / Disable / Renew)") -Items $items -DefaultIndex $idx
         $idx = $actRes.Index
         if ($actRes.Action -eq 'Back') { break }
         
         $act = $actRes.Value
-        $iface = Get-AdapterMenu (L "Выбери адаптер:")
+        $iface = Get-AdapterMenu (L "Select an adapter:")
         if (-not $iface) { continue }
         Ensure-AdapterEnabled $iface
         Clear-Host
@@ -523,14 +618,14 @@ function Manage-DHCP {
         if ($act -eq "1") {
             Set-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -Dhcp Enabled -ErrorAction SilentlyContinue | Out-Null
             Set-DnsClientServerAddress -InterfaceAlias $iface -ResetServerAddresses -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
         } elseif ($act -eq "2") {
             Set-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
         } elseif ($act -eq "3") {
             ipconfig /release "$iface" | Out-Null
             ipconfig /renew "$iface" | Out-Null
-            Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
         }
         Wait-Back
     }
@@ -540,11 +635,11 @@ function Manage-WiFi {
     $idx = 0
     while ($true) {
         $items = @(
-            @{Name = L "Показать доступные сети вокруг"; Value = "1"}
-            @{Name = L "Подключиться к сохраненной сети"; Value = "2"}
-            @{Name = L "Назад"; Value = "BACK"}
+            @{Name = L "Show available networks"; Value = "1"}
+            @{Name = L "Connect to saved network"; Value = "2"}
+            @{Name = L "Back"; Value = "BACK"}
         )
-        $actRes = Show-Menu -Title (L "Управление Wi-Fi (Поиск и подключение)") -Items $items -DefaultIndex $idx
+        $actRes = Show-Menu -Title (L "Wi-Fi Management (Search & Connect)") -Items $items -DefaultIndex $idx
         $idx = $actRes.Index
         if ($actRes.Action -eq 'Back') { break }
         
@@ -553,19 +648,19 @@ function Manage-WiFi {
             $nets = @(netsh wlan show networks | Select-String "SSID" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() } | Where-Object { $_ -ne "" } | Select-Object -Unique)
             $nItems = @()
             foreach ($n in $nets) { $nItems += @{Name = $n; Value = $n} }
-            $nItems += @{Name = L "Назад"; Value = 'BACK'}
+            $nItems += @{Name = L "Back"; Value = 'BACK'}
             
-            $targetRes = Show-Menu -Title (L "Показать доступные сети вокруг") -Items $nItems
+            $targetRes = Show-Menu -Title (L "Show available networks") -Items $nItems
             if ($targetRes.Action -ne 'Back') {
                 $target = $targetRes.Value
                 Clear-Host
                 $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
                 if ($profiles -contains $target) {
-                    Write-Host "$(L 'Эта сеть уже сохранена, подключаемся...') '$target'" -ForegroundColor Yellow
+                    Write-Host "$(L 'This network is already saved, connecting...') '$target'" -ForegroundColor Yellow
                     netsh wlan connect name="$target" | Out-Null
                 } else {
-                    $pwd = Get-TextInput (L "Введи пароль от сети (или нажми Enter, если без пароля)")
-                    Write-Host "`n$(L 'Создаем новый профиль сети...')" -ForegroundColor Cyan
+                    $pwd = Get-TextInput (L "Enter network password (or press Enter if open)")
+                    Write-Host "`n$(L 'Creating new network profile...')" -ForegroundColor Cyan
                     if ($pwd -eq "") {
                         $xml = @"
 <?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>$target</name><SSIDConfig><SSID><name>$target</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>auto</connectionMode><MSM><security><authEncryption><authentication>open</authentication><encryption>none</encryption><useOneX>false</useOneX></authEncryption></security></MSM></WLANProfile>
@@ -581,21 +676,21 @@ function Manage-WiFi {
                     Remove-Item $xmlPath -ErrorAction SilentlyContinue
                     netsh wlan connect name="$target" | Out-Null
                 }
-                Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+                Write-Host "`n$(L 'Success!')" -ForegroundColor Green
                 Wait-Back
             }
         } elseif ($act -eq "2") {
             $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
             $pItems = @()
             foreach ($p in $profiles) { $pItems += @{Name = $p; Value = $p} }
-            $pItems += @{Name = L "Назад"; Value = 'BACK'}
+            $pItems += @{Name = L "Back"; Value = 'BACK'}
             
-            $targetRes = Show-Menu -Title (L "Подключиться к сохраненной сети") -Items $pItems
+            $targetRes = Show-Menu -Title (L "Connect to saved network") -Items $pItems
             if ($targetRes.Action -ne 'Back') {
                 $target = $targetRes.Value
                 Clear-Host
                 netsh wlan connect name="$target" | Out-Null
-                Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+                Write-Host "`n$(L 'Success!')" -ForegroundColor Green
                 Wait-Back
             }
         }
@@ -606,20 +701,20 @@ function Main-Menu {
     $mainIndex = 0
     while ($true) {
         $items = @(
-            @{Name = L "Показать текущие настройки сети"; Value = 1}
-            @{Name = L "Замена основного IP-адреса"; Value = 2}
-            @{Name = L "Оставить старый IP и добавить еще один"; Value = 3}
-            @{Name = L "Управление DHCP (Включить / Отключить / Обновить)"; Value = 4}
-            @{Name = L "Полный сброс адаптера"; Value = 5}
-            @{Name = L "Сохраненные профили"; Value = 6}
-            @{Name = L "Включение / Отключение сетевых адаптеров"; Value = 7}
-            @{Name = L "Управление Wi-Fi (Поиск и подключение)"; Value = 8}
-            @{Name = L "Подмена MAC-адреса адаптера (Spoofing)"; Value = 9}
-            @{Name = L "LAN Сканер (Поиск устройств в сети)"; Value = 10}
-            @{Name = L "Выход"; Value = 0}
+            @{Name = L "Show current network settings (Live)"; Value = 1}
+            @{Name = L "Change primary IP address"; Value = 2}
+            @{Name = L "Add secondary IP address"; Value = 3}
+            @{Name = L "Manage DHCP (Enable / Disable / Renew)"; Value = 4}
+            @{Name = L "Full adapter reset"; Value = 5}
+            @{Name = L "Saved profiles"; Value = 6}
+            @{Name = L "Enable / Disable network adapters"; Value = 7}
+            @{Name = L "Wi-Fi Management (Search & Connect)"; Value = 8}
+            @{Name = L "MAC Address Spoofing"; Value = 9}
+            @{Name = L "LAN Scanner (Real-Time)"; Value = 10}
+            @{Name = L "Exit"; Value = 0}
         )
         
-        $choice = Show-Menu -Title (L "netsett++") -Items $items -DefaultIndex $mainIndex
+        $choice = Show-Menu -Title "netsett++" -Items $items -DefaultIndex $mainIndex
         $mainIndex = $choice.Index
         
         if ($choice.Action -eq 'Back') { break }
@@ -627,19 +722,19 @@ function Main-Menu {
         switch ($choice.Value) {
             1 { Show-Status }
             2 {
-                $iface = Get-AdapterMenu (L "Выбери адаптер:")
+                $iface = Get-AdapterMenu (L "Select an adapter:")
                 if ($iface) {
                     Clear-Host
-                    $ip = Get-TextInput (L "Введи IP-адрес (например 192.168.1.50)")
+                    $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
                     if (-not (Test-IPAddress $ip)) { continue }
-                    $mask = Get-TextInput (L "Введи маску подсети")
-                    $gw = Get-TextInput (L "Введи IP-адрес роутера/шлюза (Enter - пропустить)")
+                    $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
+                    $gw = Get-TextInput (L "Enter Gateway IP (Enter to skip)")
                     
-                    $svMenu = @( @{Name=L "Да"; Value=$true}, @{Name=L "Нет"; Value=$false} )
-                    $saveRes = Show-Menu -Title (L "Сохранить эти настройки как профиль?") -Items $svMenu
+                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                    $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu
                     if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
                         Clear-Host
-                        $pname = Get-TextInput (L "Придумай название для профиля")
+                        $pname = Get-TextInput (L "Enter a name for the profile")
                         $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
                         $profiles = @()
                         if (Test-Path $ProfilePath) { $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json }
@@ -651,28 +746,28 @@ function Main-Menu {
                 }
             }
             3 {
-                $iface = Get-AdapterMenu (L "Выбери адаптер:")
+                $iface = Get-AdapterMenu (L "Select an adapter:")
                 if ($iface) {
                     Clear-Host
-                    $ip = Get-TextInput (L "Введи IP-адрес (например 192.168.1.50)")
+                    $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
                     if (-not (Test-IPAddress $ip)) { continue }
-                    $mask = Get-TextInput (L "Введи маску подсети")
+                    $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
                     New-NetIPAddress -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -AddressFamily IPv4 -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+                    Write-Host "`n$(L 'Success!')" -ForegroundColor Green
                     Wait-Back
                 }
             }
             4 { Manage-DHCP }
             5 {
-                $iface = Get-AdapterMenu (L "Выбери адаптер:")
+                $iface = Get-AdapterMenu (L "Select an adapter:")
                 if ($iface) {
-                    $svMenu = @( @{Name=L "Да"; Value=$true}, @{Name=L "Нет"; Value=$false} )
-                    $confirmRes = Show-Menu -Title (L "Ты УВЕРЕН, что хочешь удалить все настройки?") -Items $svMenu
+                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                    $confirmRes = Show-Menu -Title (L "Are you SURE you want to clear all settings?") -Items $svMenu
                     if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
                         Clear-Host
                         Remove-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
                         Remove-NetRoute -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-                        Write-Host "`n$(L 'Адаптер полностью очищен')" -ForegroundColor Green
+                        Write-Host "`n$(L 'Adapter settings cleared successfully')" -ForegroundColor Green
                         Wait-Back
                     }
                 }
@@ -680,21 +775,25 @@ function Main-Menu {
             6 {
                 if (-not (Test-Path $ProfilePath)) { 
                     Clear-Host
-                    Write-Host "`nУ тебя пока нет сохраненных профилей." -ForegroundColor Yellow
-                    Write-Host "Они появятся здесь, когда ты сохранишь настройки при установке нового IP-адреса." -ForegroundColor DarkGray
+                    Write-Host "`n$(L "You don't have any saved profiles yet.")" -ForegroundColor Yellow
+                    Write-Host "$(L "They will appear here when you save settings while applying a new IP.")" -ForegroundColor DarkGray
                     Wait-Back
                     continue 
                 }
                 $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json
                 $pItems = @()
                 foreach ($p in $profiles) { $pItems += @{Name = "$($p.Name) [$($p.IP)]"; Value = $p} }
-                $pItems += @{Name = L "Назад"; Value = 'BACK'}
+                $pItems += @{Name = L "Back"; Value = 'BACK'}
                 
-                $pRes = Show-Menu -Title (L "Загрузить и применить профиль") -Items $pItems
+                $pRes = Show-Menu -Title (L "Load and apply a profile") -Items $pItems
                 if ($pRes.Action -ne 'Back') {
                     $p = $pRes.Value
-                    $svMenu = @( @{Name=L "Да"; Value=$true}, @{Name=L "Нет"; Value=$false} )
-                    $confirmRes = Show-Menu -Title ("Применить '$($p.Name)' к '$($p.Interface)'?") -Items $svMenu
+                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                    # Названия профилей не переводим, склеиваем строку на лету
+                    $confirmTitle = "Apply '$($p.Name)' to '$($p.Interface)'?"
+                    if ($global:SysLang -eq "ru") { $confirmTitle = "Применить '$($p.Name)' к '$($p.Interface)'?" }
+                    
+                    $confirmRes = Show-Menu -Title $confirmTitle -Items $svMenu
                     if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
                         Clear-Host
                         Set-StaticIP -InterfaceAlias $p.Interface -IPAddress $p.IP -PrefixLength $p.Mask -DefaultGateway $p.Gateway -Mode 'Replace'
@@ -704,15 +803,15 @@ function Main-Menu {
             7 { Manage-Adapters }
             8 { Manage-WiFi }
             9 {
-                $iface = Get-AdapterMenu (L "Выбери адаптер:")
+                $iface = Get-AdapterMenu (L "Select an adapter:")
                 if ($iface) {
                     $mItems = @(
-                        @{Name = L "Ввести новый MAC вручную"; Value = "1"}
-                        @{Name = L "Сгенерировать случайный MAC"; Value = "2"}
-                        @{Name = L "Вернуть родной заводской MAC"; Value = "3"}
-                        @{Name = L "Назад"; Value = "BACK"}
+                        @{Name = L "Enter new MAC manually"; Value = "1"}
+                        @{Name = L "Generate random MAC"; Value = "2"}
+                        @{Name = L "Restore original hardware MAC"; Value = "3"}
+                        @{Name = L "Back"; Value = "BACK"}
                     )
-                    $actRes = Show-Menu -Title (L "Подмена MAC-адреса адаптера (Spoofing)") -Items $mItems
+                    $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems
                     if ($actRes.Action -ne 'Back') {
                         $act = $actRes.Value
                         $adapter = Get-NetAdapter -Name $iface
@@ -727,7 +826,7 @@ function Main-Menu {
                             $newMac = ""
                             if ($act -eq "1") {
                                 Clear-Host
-                                $inputMac = Get-TextInput "Введи новый MAC (без тире, например 001122334455)"
+                                $inputMac = Get-TextInput (L "Enter new MAC (no dashes, e.g. 001122334455)")
                                 if ($inputMac -match '^[0-9A-Fa-f]{12}$') { $newMac = $inputMac } else { continue }
                             } elseif ($act -eq "2") {
                                 $chars = "0123456789ABCDEF"; $valid = "2","6","A","E"
@@ -739,12 +838,12 @@ function Main-Menu {
                             else { Set-ItemProperty -Path $regPath -Name "NetworkAddress" -Value $newMac }
                             
                             Clear-Host
-                            Write-Host "`nПрименяем настройки..." -ForegroundColor Cyan
+                            Write-Host "`n$(L 'Applying settings...')" -ForegroundColor Cyan
                             Disable-NetAdapter -Name $iface -Confirm:$false
                             Start-Sleep 1
                             Enable-NetAdapter -Name $iface -Confirm:$false
                             Clear-Host
-                            Write-Host "`n$(L 'Успешно!')" -ForegroundColor Green
+                            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
                             Wait-Back
                         }
                     }
@@ -758,6 +857,7 @@ function Main-Menu {
 try {
     Main-Menu
 } catch {
+    Clear-Host
     Write-Host "`n[КРИТИЧЕСКАЯ ОШИБКА / CRITICAL ERROR]" -ForegroundColor White -BackgroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     Wait-Back
