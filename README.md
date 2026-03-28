@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/github/license/mioamio/netsett?style=flat-square)](https://github.com/mioamio/netsett/blob/main/LICENSE)
 [![Telegram](https://badgen.net/badge/Telegram/me/2CA5E0)](https://t.me/topvselennaya)
 
-**Удобный портативный скрипт (Bat + PowerShell) для быстрого управления сетевыми адаптерами и IP-адресами в Windows. Отлично подходит для сисадминов, инженеров и пользователей, которым часто приходится менять сетевые настройки (например, при настройке роутеров, серверов или частой смене рабочих сетей).**
+**netsett — это портативный и удобный скрипт на базе PowerShell и Batch (запускается в один клик), созданный для быстрого управления сетевыми настройками Windows без необходимости копаться в панели управления.**
 
 ## Основные возможности
 
