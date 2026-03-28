@@ -1,6 +1,12 @@
 ![20240502141438f68bcd713d](https://github.com/user-attachments/assets/4a7c70ca-2fcb-4896-afb9-3bb90bf25f33)
 
-**Удобный портативный скрипт (Bat + PowerShell) для быстрого управления сетевыми адаптерами и IP-адресами в ОС Windows. Отлично подходит для сисадминов, инженеров и пользователей, которым часто приходится менять сетевые настройки (например, при настройке роутеров, серверов или частой смене рабочих сетей).**
+[![Windows](https://badgen.net/badge/icon/windows?icon=windows&label)](https://microsoft.com/windows/)
+![Terminal](https://badgen.net/badge/icon/terminal?icon=terminal&label)
+![Views](https://komarev.com/ghpvc/?username=mioamio&repo=netsett&style=flat-square&label=Views)
+[![License: MIT](https://img.shields.io/github/license/mioamio/netsett?style=flat-square)](https://github.com/mioamio/netsett/blob/main/LICENSE)
+[![Telegram](https://badgen.net/badge/Telegram/me/2CA5E0)](https://t.me/topvselennaya)
+
+**Удобный портативный скрипт (Bat + PowerShell) для быстрого управления сетевыми адаптерами и IP-адресами в Windows. Отлично подходит для сисадминов, инженеров и пользователей, которым часто приходится менять сетевые настройки (например, при настройке роутеров, серверов или частой смене рабочих сетей).**
 
 ## Основные возможности
 
