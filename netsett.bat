@@ -130,9 +130,31 @@ $global:RuDict = @{
     "Network Resets & Troubleshooting" = "Сброс сети и устранение неполадок"
     "Manage Saved Profiles" = "Управление сохраненными профилями"
     "Enable / Disable network adapters" = "Включение / Отключение адаптеров"
-    "Wi-Fi Management (Search, Connect, Passwords)" = "Управление Wi-Fi (Радар, Пароли, Усиление)"
+    "Wi-Fi Management (Search, Connect, Passwords)" = "Управление Wi-Fi (Радар, Пароли, Каналы, Приоритет)"
     "MAC Address Spoofing" = "Подмена MAC-адреса (Spoofing)"
     "LAN Scanner" = "LAN Сканер (Поиск устройств в сети)"
+    
+    "Optimize MTU (Find perfect packet size)" = "Оптимизация MTU (Поиск идеального пакета)"
+    "Wi-Fi Channel Analyzer & Optimizer" = "Анализатор зашумленности каналов Wi-Fi"
+    "Manage Wi-Fi Network Priorities" = "Менеджер приоритетов сетей Wi-Fi"
+    
+    "=== MTU Optimizer ===" = "=== Оптимизатор MTU ==="
+    "This tool will ping a reliable server to find your perfect packet size." = "Этот инструмент найдет максимальный размер пакета для вашей сети."
+    "Using the correct MTU avoids fragmentation, reduces ping, and fixes loading bugs." = "Правильный MTU устраняет фрагментацию, снижает пинг и ускоряет загрузку."
+    "Press [ENTER] to Start Test or [ESC] to Cancel" = "Нажми [ENTER] для запуска теста или [ESC] для отмены"
+    
+    "Testing packet size" = "Тестируем размер пакета"
+    "Fragmented. Lowering size..." = "Фрагментирован. Уменьшаем размер..."
+    "Success. Refining..." = "Успешно. Уточняем..."
+    "Perfect MTU Found!" = "Идеальный MTU найден!"
+    "Press [Y] to Apply, or any other key to Cancel..." = "Нажми [Y] для применения, или любую другую кнопку для отмены..."
+    "Applying optimal settings to Wi-Fi adapter..." = "Применяем оптимальные настройки к Wi-Fi адаптеру..."
+    "Move this network to TOP Priority?" = "Поднять эту сеть на 1-е место (Высший приоритет)?"
+    "Network moved to priority 1." = "Сеть перемещена на 1-е место."
+    
+    "Randomized (Private) MAC" = "Случайный (Приватный) MAC"
+    "(This PC)" = "(Этот ПК)"
+    "(Gateway)" = "(Шлюз / Роутер)"
     
     "ADAPT_DISABLED" = "ОТКЛЮЧЕН"
     "ADAPT_NO_CABLE" = "НЕТ КАБЕЛЯ"
@@ -213,12 +235,6 @@ $global:RuDict = @{
     "IP Address" = "IP-адрес"
     "MAC Address" = "MAC-адрес"
     "Hostname" = "Имя в сети"
-    "Device Type/Info" = "Точный тип устройства"
-    
-    "This PC (Windows)" = "Этот компьютер (Windows)"
-    "Router / Access Point" = "Роутер / Точка доступа"
-    "Smartphone / Tablet (Private MAC)" = "Смартфон / Планшет (Случайный MAC)"
-    "Network Printer" = "Сетевой принтер"
     "Unknown Device" = "Неизвестное устройство"
     "Adapter does not have a valid IP for scanning." = "Адаптер не имеет действительного IP-адреса для сканирования."
     
@@ -237,8 +253,6 @@ function L([string]$text) {
     if ($global:SysLang -eq "ru" -and $global:RuDict.ContainsKey($text)) { return $global:RuDict[$text] }
     return $text
 }
-
-# --- ИДЕАЛЬНАЯ СИСТЕМА КООРДИНАТ ---
 
 function Reset-Line {
     $y = [Console]::CursorTop
@@ -300,7 +314,45 @@ function Get-AdaptersCached {
 }
 function Flush-AdapterCache { $global:AdCache = $null }
 
-# --- УМНЫЙ ДВИЖОК МЕНЮ С ЛАЙВ-РАДАРОМ ---
+# --- ЧИСТАЯ БАЗА IEEE (Только 100% официальные вендоры) + API ---
+$global:MacDB = @{}
+$rawMacData = "Apple=000393,000A27,001124,001451,001C42,001E52,0023DF,0025BC,28CFE9,8C8590,F8FFC2,5CAFA7|Intel=0002B3,001175,0013E8,001517,001B21,001CC0,001E67,001F3B,00215C,0022FB,0024D2,0026C7,7CC2C6|Cisco=00000C,000142,000143,000E04,001011,001E10|Microsoft=00155D,000D3A,281878|VMware=005056,000569,000C29|VirtualBox=080027|Synology=001132|Google=001A11,3C5AB4,F88FCA|Sony=000E08,001315,0015C1,0019C5,001A8A,40B0FA|Nintendo=000E8E,001656,0017AB,0009BF"
+
+foreach ($group in $rawMacData.Split('|')) {
+    $parts = $group.Split('=')
+    if ($parts.Count -eq 2) {
+        $vendor = $parts[0].Replace("_", " ")
+        foreach ($prefix in $parts[1].Split(',')) { $global:MacDB[$prefix] = $vendor }
+    }
+}
+
+function Get-VendorByMac([string]$Mac) {
+    $cleanMac = $Mac.Replace("-", "").Replace(":", "").ToUpper()
+    if ($cleanMac.Length -ge 6) {
+        $prefix = $cleanMac.Substring(0, 6)
+        
+        # 1. Проверка на приватный (рандомизированный) MAC
+        try {
+            $firstOctet = [convert]::ToInt32($cleanMac.Substring(0,2), 16)
+            if (($firstOctet -band 2) -eq 2) { return (L "Randomized (Private) MAC") }
+        } catch {}
+
+        # 2. Проверка строгой локальной базы
+        if ($global:MacDB.ContainsKey($prefix)) { return $global:MacDB[$prefix] }
+        
+        # 3. Онлайн поиск через API (Fail-safe)
+        try {
+            $url = "https://api.macvendors.com/$prefix"
+            $apiVendor = Invoke-RestMethod -Uri $url -TimeoutSec 2 -ErrorAction Stop
+            # Убираем скучные суффиксы компаний для красоты
+            $cleanVendor = $apiVendor -replace '(?i)(,?\s*(Inc\.|Ltd\.|Co\.|Corporation|GmbH|LLC|Corp\.?)).*$', ''
+            $global:MacDB[$prefix] = $cleanVendor # Кэшируем результат
+            return $cleanVendor
+        } catch {}
+    }
+    return ""
+}
+
 function Show-Menu {
     param([string]$Title, [array]$Items, [switch]$IsToggleMenu, [int]$DefaultIndex = 0, [switch]$ShowLogo, [switch]$DynamicWiFi)
     $selected = $DefaultIndex
@@ -322,18 +374,13 @@ function Show-Menu {
             $forceRedraw = $true
         }
 
-        # --- СМАРТ WI-FI РАДАР (Прямое и быстрое чтение сетей) ---
         if ($DynamicWiFi -and ([DateTime]::Now - $lastWiFiScan).TotalSeconds -gt 3) {
             $lastWiFiScan = [DateTime]::Now
-            
-            # Читаем все SSID из системы и оставляем только уникальные и не пустые
             $nets = @(netsh wlan show networks | Where-Object { $_ -match "SSID" } | ForEach-Object { ($_ -split ':', 2)[1].Trim() } | Where-Object { $_ -ne "" } | Select-Object -Unique)
-            
             $newItems = @()
             foreach ($n in $nets) { $newItems += @{Name = $n; Value = $n} }
             $newItems += @{Name = L "Back"; Value = 'BACK'}
             
-            # Сверяем старый список с новым
             $changed = $false
             if ($newItems.Count -ne $Items.Count) {
                 $changed = $true
@@ -346,8 +393,6 @@ function Show-Menu {
             if ($changed -or $Items.Count -le 1) {
                 $selectedVal = if ($Items.Count -gt 0) { $Items[$selected].Value } else { $null }
                 $Items = $newItems
-                
-                # Восстанавливаем позицию курсора, если сеть осталась в списке
                 $newIdx = 0
                 for ($i=0; $i -lt $Items.Count; $i++) {
                     if ($Items[$i].Value -eq $selectedVal) { $newIdx = $i; break }
@@ -466,7 +511,6 @@ function Wait-Back {
     return "BACK"
 }
 
-# Универсальная функция для показа экранов успеха/ошибки с поддержкой мгновенного перевода
 function Show-Message {
     param([array]$Lines, [array]$Colors)
     while ($true) {
@@ -537,15 +581,14 @@ function Ensure-AdapterEnabled {
     }
 }
 
-# --- ВЫВОД СТАТУСА ---
 function Show-Status {
-    $blockW = 75
+    $blockW = 85
     while ($true) {
         Clear-Host
         [Console]::SetCursorPosition(0, 0)
         Write-Host ""
         Write-Centered (L "=== Active Local Adapters (This PC) ===") "Cyan"
-        Write-Centered "--------------------------------------------------" "DarkCyan"
+        Write-Centered "--------------------------------------------------------" "DarkCyan"
         Write-Host ""
         
         $w = $Host.UI.WindowSize.Width
@@ -570,18 +613,21 @@ function Show-Status {
                     $dns = ($dnsObj.ServerAddresses) -join ", "
                     if (-not $dns) { $dns = L "None" }
 
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network Adapter').PadRight(20)) : $($ad.InterfaceAlias)" -ForegroundColor Cyan
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Hardware').PadRight(20)) : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(20)) : $($ad.MacAddress)" -ForegroundColor DarkGray
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Operating Mode').PadRight(20)) : $dhcpStr" -ForegroundColor Yellow
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Current IP Address').PadRight(20)) : $($ipObj.IPAddress)" -ForegroundColor Green
+                    $vendor = Get-VendorByMac $ad.MacAddress
+                    $macDisp = if ($vendor) { "$($ad.MacAddress) [$vendor]" } else { $($ad.MacAddress) }
+
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network Adapter').PadRight(22)) : $($ad.InterfaceAlias)" -ForegroundColor Cyan
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Hardware').PadRight(22)) : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(22)) : $macDisp" -ForegroundColor DarkGray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Operating Mode').PadRight(22)) : $dhcpStr" -ForegroundColor Yellow
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Current IP Address').PadRight(22)) : $($ipObj.IPAddress)" -ForegroundColor Green
                     
                     if ($gw) { 
-                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(20)) : $gw" -ForegroundColor Green 
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $gw" -ForegroundColor Green 
                     } else { 
-                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(20)) : $(L 'None')" -ForegroundColor Red 
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $(L 'None')" -ForegroundColor Red 
                     }
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'DNS Servers').PadRight(20)) : $dns" -ForegroundColor Magenta
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'DNS Servers').PadRight(22)) : $dns" -ForegroundColor Magenta
                     Write-Host ""
                 }
             }
@@ -591,7 +637,7 @@ function Show-Status {
         
         Write-Host ""
         Write-Centered (L "=== Disconnected / Disabled Adapters ===") "Cyan"
-        Write-Centered "--------------------------------------------------" "DarkCyan"
+        Write-Centered "--------------------------------------------------------" "DarkCyan"
         Write-Host ""
         
         $inactiveFound = $false
@@ -600,8 +646,8 @@ function Show-Status {
                 $inactiveFound = $true
                 $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
                 Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$($a.InterfaceAlias)" -ForegroundColor Gray
-                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Device Hardware').PadRight(18)) : $($a.InterfaceDescription)" -ForegroundColor DarkGray
-                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Status').PadRight(18)) : $reason" -ForegroundColor Red
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Device Hardware').PadRight(20)) : $($a.InterfaceDescription)" -ForegroundColor DarkGray
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Status').PadRight(20)) : $reason" -ForegroundColor Red
                 Write-Host ""
             }
         }
@@ -631,21 +677,6 @@ function Get-MacByIP([string]$IP) {
     return "00-00-00-00-00-00"
 }
 
-function Get-VendorByMac([string]$Mac) {
-    $prefix = ($Mac.Replace("-", "").Substring(0,6)).ToUpper()
-    $vendors = @{
-        "001CB3"="Apple"; "002500"="Apple"; "28CFE9"="Apple"; "8C8590"="Apple"; "F8FFC2"="Apple"
-        "001E10"="Cisco"; "0017C4"="ASUS"; "001A92"="ASUS"; "000D3A"="Microsoft"; "281878"="Microsoft"
-        "001132"="Synology"; "00089B"="QNAP"; "E48D8C"="MikroTik"; "000C42"="MikroTik"
-        "C04A00"="TP-Link"; "E848B8"="TP-Link"; "080027"="VirtualBox"; "000569"="VMware"
-        "001BDC"="Samsung"; "002268"="Xiaomi"; "001A4B"="HP"; "000000"="Xerox"
-        "F0B429"="Ubiquiti"; "0418D6"="Ubiquiti"; "0001E3"="Siemens"; "0002B3"="Intel"
-    }
-    if ($vendors.ContainsKey($prefix)) { return $vendors[$prefix] }
-    return ""
-}
-
-# --- ИНТЕЛЛЕКТУАЛЬНЫЙ LAN СКАНЕР ---
 function Scan-LAN {
     $iface = Get-AdapterMenu "Select an adapter:"
     if (-not $iface) { return }
@@ -667,7 +698,7 @@ function Scan-LAN {
     
     $dnsCache = @{}
     $deviceState = @{}
-    $blockW = 85
+    $blockW = 95
 
     Clear-Host
     $lastWinWidth = $Host.UI.WindowSize.Width
@@ -678,6 +709,7 @@ function Scan-LAN {
             Clear-Host
         }
 
+        # 1. Запуск асинхронного пинга
         $pingers = @(); $tasks = @()
         foreach ($i in 1..254) {
             $target = "$baseIP.$i"; $ping = New-Object System.Net.NetworkInformation.Ping
@@ -706,8 +738,27 @@ function Scan-LAN {
         }
         foreach ($ip in $ipsToRemove) { $deviceState.Remove($ip) }
 
+        # --- ФОНОВЫЙ ПОИСК ИМЕНИ (DNS + NetBIOS / LLMNR) ---
         foreach ($ip in $deviceState.Keys) {
-            if (-not $dnsCache.ContainsKey($ip)) { $dnsCache[$ip] = [System.Net.Dns]::GetHostEntryAsync($ip) }
+            if (-not $dnsCache.ContainsKey($ip)) {
+                $ps = [powershell]::Create().AddScript({
+                    param($targetIp)
+                    try {
+                        $name = [System.Net.Dns]::GetHostEntry($targetIp).HostName
+                        if ($name -and $name -ne $targetIp) { return $name }
+                    } catch {}
+                    
+                    try {
+                        $res = Resolve-DnsName -Name $targetIp -LlmnrNetbiosOnly -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($res.NameHost -and $res.NameHost -ne $targetIp) { return $res.NameHost }
+                    } catch {}
+                    
+                    return ""
+                }).AddArgument($ip)
+                
+                $asyncRes = $ps.BeginInvoke()
+                $dnsCache[$ip] = @{ PS = $ps; AsyncResult = $asyncRes; Result = ""; IsDone = $false }
+            }
         }
 
         $sortedIPs = $deviceState.Keys | Sort-Object { [Version]$_ }
@@ -716,7 +767,7 @@ function Scan-LAN {
         Write-Host ""
         Write-Centered (L "=== Found Devices (Scanning in background...) ===") "Cyan"
         Write-Centered (L '[LEFT] Go Back | [Ctrl+L] Lang') "DarkGray"
-        Write-Centered "--------------------------------------------------------" "DarkCyan"
+        Write-Centered "----------------------------------------------------------------------" "DarkCyan"
         Write-Host ""
         
         $w = $Host.UI.WindowSize.Width
@@ -726,47 +777,64 @@ function Scan-LAN {
         foreach ($ip in $sortedIPs) {
             $dev = $deviceState[$ip]
             $mac = $dev.MAC
-            $ttl = $dev.TTL
-
-            $hostName = ""
-            $dnsTask = $dnsCache[$ip]
-            if ($dnsTask -and $dnsTask.IsCompleted -and -not $dnsTask.IsFaulted) { $hostName = $dnsTask.Result.HostName }
-            if (-not $hostName) { $hostName = L "Unknown Device" }
-
-            $devType = "PC / IoT Device"
-            $osHint = "Linux/IoT"
             $vendor = Get-VendorByMac $mac
 
-            if ($ttl -gt 100 -and $ttl -le 130) { $osHint = "Windows" }
-            elseif ($ttl -gt 200 -and $ttl -le 255) { $osHint = "Cisco / Core Network" }
-            elseif ($ttl -gt 40 -and $ttl -le 65) { $osHint = "Linux / Android / iOS / macOS" }
-
-            if ($ip -eq $ipStr) { $devType = L "This PC (Windows)" } 
-            elseif ($ip -eq $gwIP) { $devType = if ($vendor) { "$vendor $((L 'Router / Access Point'))" } else { L "Router / Access Point" } } 
-            else {
-                $hostLow = $hostName.ToLower()
-                if ($hostLow -match "iphone|ipad|macbook|apple|imac") { $devType = "Apple Device ($osHint)" }
-                elseif ($hostLow -match "android|galaxy|sm-|pixel") { $devType = "Android Smartphone/Tablet" }
-                elseif ($hostLow -match "tv|kdl-|bravia|webos|tizen|roku|chromecast") { $devType = "Smart TV / Media Player" }
-                elseif ($hostLow -match "printer|hp-|epson|canon|brother|lexmark") { $devType = L "Network Printer" }
-                elseif ($hostLow -match "desktop|laptop|pc-|win-") { $devType = "Windows PC / Laptop" }
-                elseif ($vendor) { $devType = "$vendor Device ($osHint)" }
-                else {
+            $hostName = ""
+            $cacheItem = $dnsCache[$ip]
+            
+            # Чтение результата из фона
+            if (-not $cacheItem.IsDone) {
+                if ($cacheItem.AsyncResult.IsCompleted) {
                     try {
-                        $firstOctet = [convert]::ToInt32($mac.Substring(0,2), 16)
-                        if (($firstOctet -band 2) -eq 2) { $devType = L "Smartphone / Tablet (Private MAC)" }
-                        elseif ($osHint -eq "Windows") { $devType = "Windows PC" }
+                        $res = $cacheItem.PS.EndInvoke($cacheItem.AsyncResult)
+                        if ($res) { $cacheItem.Result = ($res -join "").Trim() }
                     } catch {}
+                    $cacheItem.PS.Dispose()
+                    $cacheItem.IsDone = $true
+                }
+            }
+            $hostName = $cacheItem.Result
+
+            # --- УМНАЯ ЗАГЛУШКА И ФИЛЬТР БАНАЛЬНЫХ ИМЕН ---
+            $deviceType = ""
+            if ($vendor) {
+                if ($vendor -match '(?i)Apple') { $deviceType = "Apple Device" }
+                elseif ($vendor -match '(?i)Samsung|Xiaomi|Huawei|Oppo|Vivo|Realme|Motorola') { $deviceType = "Mobile Device" }
+                elseif ($vendor -match '(?i)Hui Zhou|TCL|Hisense|LG|Sony|Roku|Nintendo|DEXP') { $deviceType = "Smart TV / Media Box" }
+                elseif ($vendor -match '(?i)Tuya|Espressif|Sonoff|Shenzhen|Lexmark|Canon|Epson') { $deviceType = "IoT / Printer" }
+                elseif ($vendor -match '(?i)Intel|AMD|Microsoft|Dell|HP|Lenovo|ASUS|Gigabyte') { $deviceType = "PC / Laptop" }
+            }
+
+            $cleanHost = $hostName -replace '(?i)\.lan$|\.local$|\.home$', ''
+
+            # 1. Если устройство вообще промолчало
+            if (-not $cleanHost -or $cleanHost -eq $ip) { 
+                if ($deviceType) {
+                    $cleanHost = "[$deviceType | $vendor]"
+                } else {
+                    $cleanHost = L "Unknown Device" 
+                }
+            } 
+            # 2. Если устройство отдало слишком банальное имя (например, "Android", "localhost", "tv")
+            elseif ($cleanHost -match '(?i)^android.*|^localhost$|^unknown$|^tv$') {
+                if ($deviceType) {
+                    $cleanHost = "$cleanHost [$deviceType]"
                 }
             }
 
-            $ipColor = if (($now - $dev.LastSeen).TotalSeconds -lt 4) { "Green" } else { "DarkGray" }
+            $hostSuffix = ""
+            if ($ip -eq $ipStr) { $hostSuffix = " $((L '(This PC)'))" }
+            elseif ($ip -eq $gwIP) { $hostSuffix = " $((L '(Gateway)'))" }
+            
+            $hostDisp = "$cleanHost$hostSuffix"
 
-            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'IP Address').PadRight(20)) : $ip" -ForegroundColor $ipColor
-            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(20)) : $mac" -ForegroundColor Gray
-            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Hostname').PadRight(20)) : $hostName" -ForegroundColor White
-            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Type/Info').PadRight(20)) : $devType" -ForegroundColor Yellow
-            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "--------------------------------------------------------" -ForegroundColor DarkCyan
+            $ipColor = if (($now - $dev.LastSeen).TotalSeconds -lt 4) { "Green" } else { "DarkGray" }
+            $macDisp = if ($vendor) { "$mac [$vendor]" } else { $mac }
+
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'IP Address').PadRight(22)) : $ip" -ForegroundColor $ipColor
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(22)) : $macDisp" -ForegroundColor Gray
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Hostname').PadRight(22)) : $hostDisp" -ForegroundColor White
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "----------------------------------------------------------------------" -ForegroundColor DarkCyan
         }
         
         Clear-Tail
@@ -789,6 +857,94 @@ function Scan-LAN {
             Start-Sleep -Milliseconds 100
         }
         if ($breakLoop) { break }
+    }
+}
+function Optimize-MTU {
+    $iface = Get-AdapterMenu "Select an adapter:"
+    if (-not $iface) { return }
+    Ensure-AdapterEnabled $iface
+
+    while($true) {
+        Clear-Host
+        Write-Host ""
+        Write-Centered (L "=== MTU Optimizer ===") "Cyan"
+        Write-Host ""
+        Write-Centered (L "This tool will ping a reliable server to find your perfect packet size.") "White"
+        Write-Centered (L "Using the correct MTU avoids fragmentation, reduces ping, and fixes loading bugs.") "Gray"
+        Write-Host ""
+        Write-Centered (L "Press [ENTER] to Start Test or [ESC] to Cancel") "Yellow"
+        
+        $k = [System.Console]::ReadKey($true)
+        if (($k.Modifiers -band [ConsoleModifiers]::Control) -and ($k.Key -eq [ConsoleKey]::L)) {
+            $global:SysLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
+            Set-Content -Path $LangCacheFile -Value $global:SysLang -Encoding UTF8
+            continue
+        }
+        if ($k.Key -eq 'Enter') { break }
+        if ($k.Key -match 'Escape|LeftArrow|Backspace') { return }
+    }
+
+    $target = "8.8.8.8"
+    $maxSize = 1472
+    $minSize = 1300
+    $current = $maxSize
+    $found = $false
+    
+    Clear-Host
+    Write-Host ""
+    Write-Centered (L "Testing packet size") "Cyan"
+    Write-Host ""
+    
+    $w = $Host.UI.WindowSize.Width
+    $startX = [math]::Max(0, [math]::Floor(($w - 40) / 2))
+
+    while ($current -ge $minSize) {
+        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+        Write-Host "Ping $target (Size: $current)... " -NoNewline -ForegroundColor White
+        
+        $res = ping $target -f -l $current -n 1
+        if ($res -match "Требуется фрагментация|Packet needs to be fragmented") {
+            Write-Host (L "Fragmented. Lowering size...") -ForegroundColor Yellow
+            $current -= 10
+        } else {
+            Write-Host "OK!" -ForegroundColor Green
+            $found = $true
+            break
+        }
+    }
+
+    if ($found) {
+        Write-Host ""
+        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+        Write-Host (L "Success. Refining...") -ForegroundColor Cyan
+        
+        while ($current -le $maxSize) {
+            $current++
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+            Write-Host "Ping $target (Size: $current)... " -NoNewline -ForegroundColor White
+            $res = ping $target -f -l $current -n 1
+            if ($res -match "Требуется фрагментация|Packet needs to be fragmented") {
+                $current-- 
+                Write-Host "LIMIT REACHED" -ForegroundColor Yellow
+                break
+            } else { 
+                Write-Host "OK!" -ForegroundColor Green 
+            }
+        }
+        
+        $optimalMTU = $current + 28
+        Write-Host ""
+        Write-Centered "$(L 'Perfect MTU Found!'): $optimalMTU" "Green"
+        Write-Host ""
+        Write-Centered (L "Press [Y] to Apply, or any other key to Cancel...") "Yellow"
+        
+        $k = [System.Console]::ReadKey($true)
+        if ($k.Key -eq 'Y') {
+            Set-NetIPInterface -InterfaceAlias $iface -NlMtuBytes $optimalMTU -ErrorAction SilentlyContinue | Out-Null
+            Show-Message @('Settings successfully applied', 'Success!') @('Cyan', 'Green')
+        }
+    } else { 
+        Show-Message @('Error') @('Red') 
     }
 }
 
@@ -1007,6 +1163,84 @@ function Set-StaticIP {
     }
 }
 
+function Analyze-WiFiChannels {
+    while ($true) {
+        Clear-Host; Write-Host ""; Write-Centered (L "Wi-Fi Channel Analyzer & Optimizer") "Cyan"
+        Write-Centered "--------------------------------------------------------" "DarkCyan"; Write-Host ""
+        
+        Write-Centered "Scanning airwaves... Please wait" "Yellow"
+        $raw = netsh wlan show networks mode=bssid
+        
+        $channels = @{}
+        foreach ($line in $raw) {
+            if ($line -match "Channel\s*:\s*(\d+)" -or $line -match "Канал\s*:\s*(\d+)") {
+                $ch = [int]$matches[1]
+                if (-not $channels.ContainsKey($ch)) { $channels[$ch] = 0 }
+                $channels[$ch]++
+            }
+        }
+        
+        Clear-Host; Write-Host ""; Write-Centered (L "Wi-Fi Channel Analyzer & Optimizer") "Cyan"
+        Write-Centered "--------------------------------------------------------" "DarkCyan"; Write-Host ""
+        $w = $Host.UI.WindowSize.Width; $startX = [math]::Max(0, [math]::Floor(($w - 60) / 2))
+        
+        if ($channels.Count -eq 0) {
+            Write-Centered "No networks found." "Red"
+        } else {
+            $sortedCh = $channels.Keys | Sort-Object
+            foreach ($ch in $sortedCh) {
+                $count = $channels[$ch]
+                $color = if ($count -gt 5) { "Red" } elseif ($count -gt 2) { "Yellow" } else { "Green" }
+                $bar = "█" * $count
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+                Write-Host "CH $ch".PadRight(8) -NoNewline -ForegroundColor White
+                Write-Host "[$count net] " -NoNewline -ForegroundColor Gray
+                Write-Host $bar -ForegroundColor $color
+            }
+        }
+        
+        Write-Host ""; Write-Centered "Router Channel should be set manually in router settings." "DarkGray"
+        Write-Host ""; Write-Centered "Press [ENTER] to Apply Optimal Driver Settings (Prefer 5GHz/Roaming) or [ESC] to Exit" "Magenta"
+        
+        $key = [System.Console]::ReadKey($true).Key
+        if ($key -eq 'Enter') {
+            $wifiAdapters = Get-NetAdapter -Physical | Where-Object MediaType -match "802.11"
+            foreach ($wa in $wifiAdapters) {
+                Set-NetAdapterAdvancedProperty -Name $wa.Name -DisplayName "Preferred Band" -DisplayValue "3. Prefer 5.2GHz band" -ErrorAction SilentlyContinue | Out-Null
+                Set-NetAdapterAdvancedProperty -Name $wa.Name -DisplayName "Предпочитаемая частота" -DisplayValue "3 - Предпочитать частоту 5.2 ГГц" -ErrorAction SilentlyContinue | Out-Null
+                Set-NetAdapterAdvancedProperty -Name $wa.Name -DisplayName "Roaming Aggressiveness" -DisplayValue "4. Medium-High" -ErrorAction SilentlyContinue | Out-Null
+            }
+            Show-Message @('Applying optimal settings to Wi-Fi adapter...', 'Success!') @('Cyan', 'Green')
+            break
+        } elseif ($key -eq 'Escape') { break }
+    }
+}
+
+function Manage-WiFiPriority {
+    $idx = 0
+    while ($true) {
+        $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
+        if ($profiles.Count -eq 0) { Show-Message @("No Wi-Fi profiles found.") @("Red"); break }
+        
+        $items = @()
+        foreach ($p in $profiles) { $items += @{Name = $p; Value = $p} }
+        $items += @{Name = L "Back"; Value = "BACK"}
+        
+        $res = Show-Menu -Title (L "Manage Wi-Fi Network Priorities") -Items $items -DefaultIndex $idx
+        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
+        if ($res.Action -eq 'Back') { break }
+        
+        $target = $res.Value
+        $cMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+        $cRes = Show-Menu -Title "$(L 'Move this network to TOP Priority?'): '$target'" -Items $cMenu -DefaultIndex 0
+        if ($cRes.Value -eq $true) {
+            netsh wlan set profileorder name="$target" interface="Wi-Fi" priority=1 | Out-Null
+            Show-Message @('Network moved to priority 1.', 'Success!') @('Cyan', 'Green')
+            $idx = 0 
+        }
+    }
+}
+
 function Manage-WiFi {
     $idx = 0
     while ($true) {
@@ -1015,6 +1249,8 @@ function Manage-WiFi {
             @{Name = L "Connect to saved network"; Value = "2"}
             @{Name = L "Show saved Wi-Fi passwords"; Value = "3"}
             @{Name = L "Optimize Wi-Fi Power (Boost Signal)"; Value = "4"}
+            @{Name = L "Wi-Fi Channel Analyzer & Optimizer"; Value = "5"}
+            @{Name = L "Manage Wi-Fi Network Priorities"; Value = "6"}
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Wi-Fi Management (Search, Connect, Passwords)") -Items $items -DefaultIndex $idx
@@ -1140,6 +1376,10 @@ function Manage-WiFi {
                     Show-Message @('Restoring default Power Plan for Wi-Fi adapter...', 'Wi-Fi power settings restored to default.') @('Cyan', 'Green')
                 } catch { Show-Message @('Error applying settings.') @('Red') }
             }
+        } elseif ($act -eq "5") {
+            Analyze-WiFiChannels
+        } elseif ($act -eq "6") {
+            Manage-WiFiPriority
         }
     }
 }
@@ -1159,6 +1399,7 @@ function Main-Menu {
             @{Name = L "Wi-Fi Management (Search, Connect, Passwords)"; Value = 9}
             @{Name = L "MAC Address Spoofing"; Value = 10}
             @{Name = L "LAN Scanner"; Value = 11}
+            @{Name = L "Optimize MTU (Find perfect packet size)"; Value = 12}
             @{Name = L "Exit"; Value = 0}
         )
         
@@ -1260,6 +1501,7 @@ function Main-Menu {
                 }
             }
             11 { Scan-LAN }
+            12 { Optimize-MTU }
         }
     }
 }
