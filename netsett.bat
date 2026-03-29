@@ -1,7 +1,7 @@
 <# : 2>nul
 @echo off
 chcp 65001 >nul
-title netsett++
+title netsett++ (Dev Mode)
 
 cd /d "%~dp0"
 set "BAT_FILE_PATH=%~f0"
@@ -16,7 +16,7 @@ if errorlevel 1 (
 :RELOAD_SCRIPT
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Command -ScriptBlock ([ScriptBlock]::Create((Get-Content -LiteralPath $env:BAT_FILE_PATH -Raw -Encoding UTF8)))"
 
-:: Если PowerShell вернул код 99 (нажата F5), мгновенно перезапускаем
+:: Если PowerShell вернул код 99 (нажата F5 или Ctrl+L), мгновенно перезапускаем
 if %errorlevel% equ 99 (
     goto RELOAD_SCRIPT
 )
@@ -129,9 +129,9 @@ $global:RuDict = @{
     "Quick DNS Setup (Cloudflare, Google, etc.)" = "Быстрая смена DNS (Cloudflare, Google и др.)"
     "Network Resets & Troubleshooting" = "Сброс сети и устранение неполадок"
     "Manage Saved Profiles" = "Управление сохраненными профилями"
-    "Enable / Disable network adapters" = "Включение / Отключение сетевых адаптеров"
-    "Wi-Fi Management (Search, Connect, Passwords)" = "Управление Wi-Fi (Live-Поиск, Пароли, Усиление)"
-    "MAC Address Spoofing" = "Подмена MAC-адреса адаптера (Spoofing)"
+    "Enable / Disable network adapters" = "Включение / Отключение адаптеров"
+    "Wi-Fi Management (Search, Connect, Passwords)" = "Управление Wi-Fi (Радар, Пароли, Усиление)"
+    "MAC Address Spoofing" = "Подмена MAC-адреса (Spoofing)"
     "LAN Scanner" = "LAN Сканер (Поиск устройств в сети)"
     
     "ADAPT_DISABLED" = "ОТКЛЮЧЕН"
@@ -155,7 +155,7 @@ $global:RuDict = @{
     
     "Enter IP address (e.g. 192.168.1.50)" = "Введи IP-адрес (например 192.168.1.50)"
     "Enter subnet mask (e.g. 24)" = "Введи маску подсети (например 24)"
-    "Enter Gateway IP (Enter to skip)" = "Введи IP-адрес роутера/шлюза (Enter - пропустить)"
+    "Enter Gateway IP (Enter to skip)" = "Введи IP-адрес шлюза (Enter - пропустить)"
     "Save these settings as a profile?" = "Сохранить эти настройки как профиль?"
     "Enter a name for the profile" = "Придумай название для профиля"
     "Settings successfully applied" = "Настройки успешно применены"
@@ -163,10 +163,10 @@ $global:RuDict = @{
     
     "Clear adapter IP/Routing settings" = "Полная очистка IP и маршрутов адаптера"
     "Full Windows Network Reset (Winsock & Flush DNS)" = "Глубокий сброс стека сети Windows (Winsock / DNS)"
-    "Are you SURE you want to clear adapter settings?" = "Ты УВЕРЕН, что хочешь удалить настройки IP адаптера?"
+    "Are you SURE you want to clear adapter settings?" = "УВЕРЕН, что хочешь удалить настройки адаптера?"
     "Adapter settings cleared successfully" = "Адаптер полностью очищен"
-    "Resetting Windows network stack..." = "Выполняется сброс сетевого стека Windows..."
-    "A computer restart is recommended after this reset." = "После этого сброса рекомендуется перезагрузить компьютер."
+    "Resetting Windows network stack..." = "Сброс сетевого стека Windows..."
+    "A computer restart is recommended after this reset." = "Рекомендуется перезагрузить компьютер."
     
     "Enable DHCP" = "Включить DHCP"
     "Disable DHCP" = "Отключить DHCP"
@@ -180,8 +180,8 @@ $global:RuDict = @{
     "Show saved Wi-Fi passwords" = "Показать сохраненные пароли Wi-Fi"
     "Optimize Wi-Fi Power (Boost Signal)" = "Оптимизировать мощность Wi-Fi (Усилить сигнал)"
     "Enable Wi-Fi Boost (Max Performance)" = "Включить усиление Wi-Fi (Макс. производительность)"
-    "Disable Wi-Fi Boost (Balanced/Default)" = "Отключить усиление Wi-Fi (Сбалансированный/По умолчанию)"
-    "Applying Max Performance Power Plan to Wi-Fi adapter..." = "Применяем профиль Максимальной Производительности к Wi-Fi..."
+    "Disable Wi-Fi Boost (Balanced/Default)" = "Отключить усиление Wi-Fi (По умолчанию)"
+    "Applying Max Performance Power Plan to Wi-Fi adapter..." = "Применяем профиль Максимальной Производительности..."
     "Wi-Fi transmission power boosted successfully!" = "Мощность передачи Wi-Fi успешно увеличена!"
     "Restoring default Power Plan for Wi-Fi adapter..." = "Возвращаем стандартные настройки питания Wi-Fi..."
     "Wi-Fi power settings restored to default." = "Настройки питания Wi-Fi возвращены по умолчанию."
@@ -198,7 +198,7 @@ $global:RuDict = @{
     "Enter new MAC manually" = "Ввести новый MAC вручную"
     "Generate random MAC" = "Сгенерировать случайный MAC"
     "Restore original hardware MAC" = "Вернуть родной заводской MAC"
-    "Enter new MAC (no dashes, e.g. 001122334455)" = "Введи новый MAC (без тире, например 001122334455)"
+    "Enter new MAC (no dashes, e.g. 001122334455)" = "Введи новый MAC (без тире, напр. 001122334455)"
     "Applying settings..." = "Применяем настройки..."
     
     "=== Found Devices (Scanning in background...) ===" = "=== Найденные устройства (Фоновое сканирование...) ==="
@@ -230,7 +230,7 @@ $global:RuDict = @{
     "Enter new name for the profile" = "Введи новое имя для профиля"
     "Profile renamed." = "Профиль переименован."
     "You don't have any saved profiles yet." = "У тебя пока нет сохраненных профилей."
-    "They will appear here when you save settings while applying a new IP." = "Они появятся здесь, когда ты сохранишь настройки при установке нового IP-адреса."
+    "They will appear here when you save settings while applying a new IP." = "Они появятся здесь при сохранении настроек."
 }
 
 function L([string]$text) {
@@ -300,7 +300,7 @@ function Get-AdaptersCached {
 }
 function Flush-AdapterCache { $global:AdCache = $null }
 
-# --- УМНЫЙ ДВИЖОК МЕНЮ ---
+# --- УМНЫЙ ДВИЖОК МЕНЮ С ЛАЙВ-РАДАРОМ ---
 function Show-Menu {
     param([string]$Title, [array]$Items, [switch]$IsToggleMenu, [int]$DefaultIndex = 0, [switch]$ShowLogo, [switch]$DynamicWiFi)
     $selected = $DefaultIndex
@@ -310,10 +310,9 @@ function Show-Menu {
     Clear-Host
     
     $forceRedraw = $true
-    $lastWiFiScan = [DateTime]::Now.AddSeconds(-10)
+    $lastWiFiScan = [DateTime]::MinValue
     $lastWinWidth = $Host.UI.WindowSize.Width
     $lastWinHeight = $Host.UI.WindowSize.Height
-    $wifiList = New-Object System.Collections.Generic.List[string]
 
     while ($true) {
         if ($Host.UI.WindowSize.Width -ne $lastWinWidth -or $Host.UI.WindowSize.Height -ne $lastWinHeight) {
@@ -323,29 +322,39 @@ function Show-Menu {
             $forceRedraw = $true
         }
 
+        # --- СМАРТ WI-FI РАДАР (Прямое и быстрое чтение сетей) ---
         if ($DynamicWiFi -and ([DateTime]::Now - $lastWiFiScan).TotalSeconds -gt 3) {
             $lastWiFiScan = [DateTime]::Now
-            $nets = @(netsh wlan show networks | Select-String -Pattern "(?i)SSID\s+\d+\s+:\s+(.+)" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() } | Where-Object { $_ -ne "" })
+            
+            # Читаем все SSID из системы и оставляем только уникальные и не пустые
+            $nets = @(netsh wlan show networks | Where-Object { $_ -match "SSID" } | ForEach-Object { ($_ -split ':', 2)[1].Trim() } | Where-Object { $_ -ne "" } | Select-Object -Unique)
+            
+            $newItems = @()
+            foreach ($n in $nets) { $newItems += @{Name = $n; Value = $n} }
+            $newItems += @{Name = L "Back"; Value = 'BACK'}
+            
+            # Сверяем старый список с новым
             $changed = $false
-            foreach ($n in $nets) {
-                if (-not $wifiList.Contains($n)) {
-                    $wifiList.Add($n)
-                    $changed = $true
+            if ($newItems.Count -ne $Items.Count) {
+                $changed = $true
+            } else {
+                for ($i = 0; $i -lt $Items.Count; $i++) {
+                    if ($Items[$i].Value -ne $newItems[$i].Value) { $changed = $true; break }
                 }
             }
+            
             if ($changed -or $Items.Count -le 1) {
                 $selectedVal = if ($Items.Count -gt 0) { $Items[$selected].Value } else { $null }
-                $newItems = @()
-                foreach ($n in $wifiList) { $newItems += @{Name = $n; Value = $n} }
-                $newItems += @{Name = L "Back"; Value = 'BACK'}
                 $Items = $newItems
+                
+                # Восстанавливаем позицию курсора, если сеть осталась в списке
+                $newIdx = 0
                 for ($i=0; $i -lt $Items.Count; $i++) {
-                    if ($Items[$i].Value -eq $selectedVal) { $selected = $i; break }
+                    if ($Items[$i].Value -eq $selectedVal) { $newIdx = $i; break }
                 }
-                if ($selected -ge $Items.Count) { $selected = $Items.Count - 1 }
+                $selected = $newIdx
                 $forceRedraw = $true
             }
-            Start-Process -FilePath "netsh" -ArgumentList "wlan show networks mode=bssid" -WindowStyle Hidden -ErrorAction SilentlyContinue
         }
 
         if ($forceRedraw) {
