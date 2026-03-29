@@ -16,7 +16,7 @@ if errorlevel 1 (
 :RELOAD_SCRIPT
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Command -ScriptBlock ([ScriptBlock]::Create((Get-Content -LiteralPath $env:BAT_FILE_PATH -Raw -Encoding UTF8)))"
 
-:: Если PowerShell вернул код 99 (нажата F5 или Ctrl+L), мгновенно перезапускаем
+:: Если PowerShell вернул код 99 (нажата F5), мгновенно перезапускаем
 if %errorlevel% equ 99 (
     goto RELOAD_SCRIPT
 )
@@ -34,6 +34,10 @@ exit /b
 $ErrorActionPreference = 'Stop'
 $ProfilePath = "$env:USERPROFILE\.netman_profiles.json"
 $LangCacheFile = "$env:TEMP\netsett_lang.txt"
+
+# --- ГЛОБАЛЬНЫЙ КЭШ ---
+$global:AdCache = $null
+$global:AdCacheTime = [DateTime]::MinValue
 
 # === УВЕЛИЧЕННЫЙ ШРИФТ И НАСТРОЙКА ОКНА ===
 $FontSize = 28
@@ -82,7 +86,7 @@ try {
     [ConsoleHelper]::SetFontSize($FontSize)
 } catch {}
 
-# Подгонка размера под крупный шрифт
+# Подгонка размера окна
 try {
     $ui = $Host.UI.RawUI
     $bufSize = $ui.BufferSize
@@ -99,7 +103,7 @@ try {
     $ui.BufferSize = $bufSize
 } catch {}
 
-# --- СЕКРЕТНАЯ СИСТЕМА ЛОКАЛИЗАЦИИ (С ПОДДЕРЖКОЙ CTRL+L И КЭШИРОВАНИЕМ) ---
+# --- СИСТЕМА ЛОКАЛИЗАЦИИ ---
 if (Test-Path $LangCacheFile) {
     $global:SysLang = (Get-Content $LangCacheFile -Raw).Trim()
 } else {
@@ -109,13 +113,14 @@ if (Test-Path $LangCacheFile) {
 }
 
 $global:RuDict = @{
-    "[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back | [F5] Reload" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Войти | [ВЛЕВО] Назад | [F5] Обновить"
-    "[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back | [F5] Reload" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Вкл | [ВЛЕВО] Выкл | [ESC] Назад | [F5] Обновить"
-    "[LEFT] Go Back" = "[ВЛЕВО] Назад"
+    "[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back | [Ctrl+L] Lang" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Войти | [ВЛЕВО] Назад | [Ctrl+L] Язык"
+    "[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back | [Ctrl+L] Lang" = "[ВВЕРХ/ВНИЗ] Выбор | [ВПРАВО] Вкл | [ВЛЕВО] Выкл | [ESC] Назад | [Ctrl+L] Язык"
+    "[LEFT] Go Back | [Ctrl+L] Lang" = "[ВЛЕВО] Назад | [Ctrl+L] Язык"
     "Back" = "Назад"
     "Yes" = "Да"
     "No" = "Нет"
     "Exit" = "Выход"
+    "Error" = "Ошибка"
     
     "Show current network settings" = "Показать текущие настройки адаптеров"
     "Change primary IP address" = "Замена основного IP-адреса"
@@ -123,7 +128,7 @@ $global:RuDict = @{
     "Manage DHCP (Enable / Disable / Renew)" = "Управление DHCP (Включить / Отключить / Обновить)"
     "Quick DNS Setup (Cloudflare, Google, etc.)" = "Быстрая смена DNS (Cloudflare, Google и др.)"
     "Network Resets & Troubleshooting" = "Сброс сети и устранение неполадок"
-    "Saved profiles" = "Сохраненные профили"
+    "Manage Saved Profiles" = "Управление сохраненными профилями"
     "Enable / Disable network adapters" = "Включение / Отключение сетевых адаптеров"
     "Wi-Fi Management (Search, Connect, Passwords)" = "Управление Wi-Fi (Live-Поиск, Пароли, Усиление)"
     "MAC Address Spoofing" = "Подмена MAC-адреса адаптера (Spoofing)"
@@ -154,6 +159,7 @@ $global:RuDict = @{
     "Save these settings as a profile?" = "Сохранить эти настройки как профиль?"
     "Enter a name for the profile" = "Придумай название для профиля"
     "Settings successfully applied" = "Настройки успешно применены"
+    "Error applying settings." = "Ошибка применения настроек."
     
     "Clear adapter IP/Routing settings" = "Полная очистка IP и маршрутов адаптера"
     "Full Windows Network Reset (Winsock & Flush DNS)" = "Глубокий сброс стека сети Windows (Winsock / DNS)"
@@ -195,9 +201,7 @@ $global:RuDict = @{
     "Enter new MAC (no dashes, e.g. 001122334455)" = "Введи новый MAC (без тире, например 001122334455)"
     "Applying settings..." = "Применяем настройки..."
     
-    "Scanning local network: " = "Сканируем локальную сеть: "
-    "Scanning..." = "Ищем другие устройства в сети..."
-    "=== Found Devices ===" = "=== Найденные устройства ==="
+    "=== Found Devices (Scanning in background...) ===" = "=== Найденные устройства (Фоновое сканирование...) ==="
     "=== Active Local Adapters (This PC) ===" = "=== Активные локальные адаптеры (Этот ПК) ==="
     "=== Disconnected / Disabled Adapters ===" = "=== Отключенные / Неактивные адаптеры ==="
     "No connected and configured networks found" = "Подключенных и настроенных сетей не найдено"
@@ -218,7 +222,13 @@ $global:RuDict = @{
     "Unknown Device" = "Неизвестное устройство"
     "Adapter does not have a valid IP for scanning." = "Адаптер не имеет действительного IP-адреса для сканирования."
     
-    "Load and apply a profile" = "Загрузить и применить профиль"
+    "Apply Profile" = "Применить профиль"
+    "Rename Profile" = "Переименовать профиль"
+    "Delete Profile" = "Удалить профиль"
+    "Cancel" = "Отмена"
+    "Profile deleted." = "Профиль удален."
+    "Enter new name for the profile" = "Введи новое имя для профиля"
+    "Profile renamed." = "Профиль переименован."
     "You don't have any saved profiles yet." = "У тебя пока нет сохраненных профилей."
     "They will appear here when you save settings while applying a new IP." = "Они появятся здесь, когда ты сохранишь настройки при установке нового IP-адреса."
 }
@@ -228,22 +238,69 @@ function L([string]$text) {
     return $text
 }
 
+# --- ИДЕАЛЬНАЯ СИСТЕМА КООРДИНАТ ---
+
+function Reset-Line {
+    $y = [Console]::CursorTop
+    [Console]::SetCursorPosition(0, $y)
+    $w = $Host.UI.WindowSize.Width - 1
+    if ($w -lt 0) { $w = 110 }
+    Write-Host (" " * $w) -NoNewline -BackgroundColor Black
+    [Console]::SetCursorPosition(0, $y)
+}
+
+function Clear-Tail {
+    $y = [Console]::CursorTop
+    $max = $Host.UI.WindowSize.Height - 1
+    while ($y -lt $max) {
+        Reset-Line
+        Write-Host ""
+        $y++
+    }
+}
+
+function Write-Centered([string]$Text, [string]$FgColor="White") {
+    Reset-Line
+    $w = $Host.UI.WindowSize.Width
+    if ($w -lt 20) { $w = 110 }
+    $x = [math]::Max(0, [math]::Floor(($w - $Text.Length) / 2))
+    [Console]::SetCursorPosition($x, [Console]::CursorTop)
+    Write-Host $Text -ForegroundColor $FgColor
+}
+
 function Draw-Logo {
-    Write-Host '                       _   _      _    _____     _   _     _     _ ' -ForegroundColor Cyan
-    Write-Host '                      | \ | |    | |  / ____|   | | | |  _| |_ _| |_ ' -ForegroundColor Cyan
-    Write-Host '                      |  \| | ___| | | (___  ___| |_| |_|_   _|_   _|' -ForegroundColor DarkCyan
-    Write-Host '                      | . ` |/ _ \ __|\___ \/ _ \__| __|  |_|   |_| ' -ForegroundColor DarkCyan
-    Write-Host '                      | |\  |  __/ |_ ____) |  _/ |_| |_           ' -ForegroundColor Blue
-    Write-Host '                      |_| \_|\___|\__|_____/\___|\__|\__|           ' -ForegroundColor Blue
-    Write-Host '                      ===================================' -ForegroundColor Magenta
+    $logo = @(
+        '   _   _      _    _____     _   _     _     _ ',
+        '  | \ | |    | |  / ____|   | | | |  _| |_ _| |_ ',
+        '  |  \| | ___| |_(  (__  ___| |_| |_|_   _|_   _|',
+        '  | . ` |/ _ \ __|\___ \/ _ \ __| __| |_|   |_|  ',
+        '  | |\  |  __/ |_ ____) | __/  |_| |_            ',
+        '  |_| \_|\___|\__|_____/\___|\__|\__|            ',
+        '  ==================================='
+    )
+    $colors = @("Cyan","Cyan","DarkCyan","DarkCyan","Blue","Blue","Magenta")
+    
+    $w = $Host.UI.WindowSize.Width
+    if ($w -lt 20) { $w = 110 }
+    $startX = [math]::Max(0, [math]::Floor(($w - 49) / 2))
+
+    for ($i = 0; $i -lt $logo.Count; $i++) {
+        Reset-Line
+        [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+        Write-Host $logo[$i] -ForegroundColor $colors[$i]
+    }
 }
 
-function Write-LineClear([string]$Text, [string]$FgColor, [string]$BgColor="Black") {
-    $padLen = $Host.UI.WindowSize.Width - 1 - $Text.Length
-    if ($padLen -lt 0) { $padLen = 0 }
-    Write-Host "$Text$(' ' * $padLen)" -ForegroundColor $FgColor -BackgroundColor $BgColor
+function Get-AdaptersCached {
+    if ($global:AdCache -eq $null -or ([DateTime]::Now - $global:AdCacheTime).TotalSeconds -gt 3) {
+        $global:AdCache = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' })
+        $global:AdCacheTime = [DateTime]::Now
+    }
+    return $global:AdCache
 }
+function Flush-AdapterCache { $global:AdCache = $null }
 
+# --- УМНЫЙ ДВИЖОК МЕНЮ ---
 function Show-Menu {
     param([string]$Title, [array]$Items, [switch]$IsToggleMenu, [int]$DefaultIndex = 0, [switch]$ShowLogo, [switch]$DynamicWiFi)
     $selected = $DefaultIndex
@@ -253,55 +310,88 @@ function Show-Menu {
     Clear-Host
     
     $forceRedraw = $true
-    $lastWiFiScan = [DateTime]::Now.AddSeconds(-10) # Запускаем первый скан без задержки
+    $lastWiFiScan = [DateTime]::Now.AddSeconds(-10)
+    $lastWinWidth = $Host.UI.WindowSize.Width
+    $lastWinHeight = $Host.UI.WindowSize.Height
+    $wifiList = New-Object System.Collections.Generic.List[string]
 
     while ($true) {
-        # --- БЛОК ДИНАМИЧЕСКОГО WI-FI СКАНЕРА ---
+        if ($Host.UI.WindowSize.Width -ne $lastWinWidth -or $Host.UI.WindowSize.Height -ne $lastWinHeight) {
+            $lastWinWidth = $Host.UI.WindowSize.Width
+            $lastWinHeight = $Host.UI.WindowSize.Height
+            Clear-Host
+            $forceRedraw = $true
+        }
+
         if ($DynamicWiFi -and ([DateTime]::Now - $lastWiFiScan).TotalSeconds -gt 3) {
             $lastWiFiScan = [DateTime]::Now
-            $nets = @(netsh wlan show networks | Select-String -Pattern "(?i)SSID\s+\d+\s+:\s+(.+)" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() } | Where-Object { $_ -ne "" } | Select-Object -Unique)
-            
-            $newItems = @()
-            foreach ($n in $nets) { $newItems += @{Name = $n; Value = $n} }
-            $newItems += @{Name = L "Back"; Value = 'BACK'}
-            
-            if ($newItems.Count -ne $Items.Count) {
+            $nets = @(netsh wlan show networks | Select-String -Pattern "(?i)SSID\s+\d+\s+:\s+(.+)" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() } | Where-Object { $_ -ne "" })
+            $changed = $false
+            foreach ($n in $nets) {
+                if (-not $wifiList.Contains($n)) {
+                    $wifiList.Add($n)
+                    $changed = $true
+                }
+            }
+            if ($changed -or $Items.Count -le 1) {
+                $selectedVal = if ($Items.Count -gt 0) { $Items[$selected].Value } else { $null }
+                $newItems = @()
+                foreach ($n in $wifiList) { $newItems += @{Name = $n; Value = $n} }
+                $newItems += @{Name = L "Back"; Value = 'BACK'}
                 $Items = $newItems
+                for ($i=0; $i -lt $Items.Count; $i++) {
+                    if ($Items[$i].Value -eq $selectedVal) { $selected = $i; break }
+                }
                 if ($selected -ge $Items.Count) { $selected = $Items.Count - 1 }
                 $forceRedraw = $true
             }
+            Start-Process -FilePath "netsh" -ArgumentList "wlan show networks mode=bssid" -WindowStyle Hidden -ErrorAction SilentlyContinue
         }
-        # ----------------------------------------
 
         if ($forceRedraw) {
             [Console]::SetCursorPosition(0, 0)
-            if ($ShowLogo) { Draw-Logo; Write-LineClear "" "Black" }
-            
-            Write-LineClear "--- $Title ---" "White"
-            if ($IsToggleMenu) {
-                Write-LineClear " $(L '[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back | [F5] Reload')" "DarkGray"
-            } else {
-                Write-LineClear " $(L '[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back | [F5] Reload')" "DarkGray"
+            if ($ShowLogo) { 
+                Draw-Logo
+                Write-Host "" 
             }
-            Write-LineClear "" "Black"
-
+            
+            Write-Centered "--- $Title ---" "White"
+            if ($IsToggleMenu) {
+                Write-Centered (L '[UP/DOWN] Select | [RIGHT] Enable | [LEFT] Disable | [ESC] Back | [Ctrl+L] Lang') "DarkGray"
+            } else {
+                Write-Centered (L '[UP/DOWN] Select | [RIGHT] Enter | [LEFT] Back | [Ctrl+L] Lang') "DarkGray"
+            }
+            Write-Host ""
+            
+            $maxLen = 0
+            foreach ($item in $Items) { if ($item.Name.Length -gt $maxLen) { $maxLen = $item.Name.Length } }
+            $menuBlockW = $maxLen + 4 
+            
+            $w = $Host.UI.WindowSize.Width
+            if ($w -lt 20) { $w = 110 }
+            $startX = [math]::Max(0, [math]::Floor(($w - $menuBlockW) / 2))
+            
             for ($i = 0; $i -lt $Items.Count; $i++) {
+                Reset-Line
+                [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+                
                 $isBackAction = ($Items[$i].Value -eq 'BACK' -or $Items[$i].Value -eq 0)
-                $prefix = "    "
-                $fg = "Gray"
-                $bg = "Black"
                 
                 if ($i -eq $selected) {
-                    if ($isBackAction) { $prefix = "  < " } else { $prefix = "  > " }
+                    $prefix = if ($isBackAction) { "  < " } else { "  > " }
                     $fg = "Black"
                     $bg = "Cyan"
+                } else {
+                    $prefix = "    "
+                    $fg = "Gray"
+                    $bg = "Black"
                 }
-                Write-LineClear "$prefix$($Items[$i].Name)" $fg $bg
+                
+                $paddedName = $Items[$i].Name.PadRight($maxLen, ' ')
+                Write-Host "$prefix$paddedName" -ForegroundColor $fg -BackgroundColor $bg
             }
             
-            $currentTop = [Console]::CursorTop
-            while ($currentTop -lt $Host.UI.WindowSize.Height - 1) { Write-LineClear "" "Black"; $currentTop++ }
-            
+            Clear-Tail
             $forceRedraw = $false
         }
         
@@ -310,29 +400,22 @@ function Show-Menu {
             if ([Console]::KeyAvailable) {
                 $keyInfo = [System.Console]::ReadKey($true)
                 $key = $keyInfo.Key
-                
-                # --- СЕКРЕТНАЯ СМЕНА ЯЗЫКА (Ctrl + L) ---
-                if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($keyInfo.Key -eq [ConsoleKey]::L)) {
-                    Clear-Host
-                    $newLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
-                    Set-Content -Path $LangCacheFile -Value $newLang -Encoding UTF8
-                    Write-Host "`n   Switching language..." -ForegroundColor Magenta
-                    Start-Sleep -Milliseconds 200
-                    [Environment]::Exit(99)
-                }
                 break
             }
-            Start-Sleep -Milliseconds 40
+            Start-Sleep -Milliseconds 20
         }
 
         if ($key) {
+            if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($key -eq [ConsoleKey]::L)) {
+                $global:SysLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
+                Set-Content -Path $LangCacheFile -Value $global:SysLang -Encoding UTF8
+                return @{ Action = 'LangChange'; Value = $null; Index = $selected }
+            }
+
+            if ($key -eq 'F5') { [Environment]::Exit(99) }
+
             $forceRedraw = $true
-            if ($key -eq 'F5') {
-                Clear-Host
-                Write-Host "`n   [ DEV MODE ] Reloading code from disk..." -ForegroundColor Magenta
-                Start-Sleep -Milliseconds 300
-                [Environment]::Exit(99)
-            } elseif ($key -eq 'UpArrow') {
+            if ($key -eq 'UpArrow') {
                 $selected = ($selected - 1 + $Items.Count) % $Items.Count
             } elseif ($key -eq 'DownArrow') {
                 $selected = ($selected + 1) % $Items.Count
@@ -353,130 +436,175 @@ function Show-Menu {
 }
 
 function Wait-Back {
-    Write-Host "`n$(L '[LEFT] Go Back') | [F5] Reload" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Centered (L '[LEFT] Go Back | [Ctrl+L] Lang') "DarkGray"
     while ($true) {
-        $keyInfo = [System.Console]::ReadKey($true)
-        $key = $keyInfo.Key
-        
-        # --- СЕКРЕТНАЯ СМЕНА ЯЗЫКА (Ctrl + L) ---
-        if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($keyInfo.Key -eq [ConsoleKey]::L)) {
-            Clear-Host
-            $newLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
-            Set-Content -Path $LangCacheFile -Value $newLang -Encoding UTF8
-            Write-Host "`n   Switching language..." -ForegroundColor Magenta
-            Start-Sleep -Milliseconds 200
-            [Environment]::Exit(99)
-        }
+        if ([Console]::KeyAvailable) {
+            $keyInfo = [System.Console]::ReadKey($true)
+            $key = $keyInfo.Key
+            
+            if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($key -eq [ConsoleKey]::L)) {
+                $global:SysLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
+                Set-Content -Path $LangCacheFile -Value $global:SysLang -Encoding UTF8
+                return "LANG_CHANGED"
+            }
 
-        if ($key -eq 'F5') { [Environment]::Exit(99) }
-        if ($key -match 'LeftArrow|Escape|Enter|RightArrow|Backspace') { break }
+            if ($key -eq 'F5') { [Environment]::Exit(99) }
+            if ($key -match 'LeftArrow|Escape|Enter|RightArrow|Backspace') { break }
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    return "BACK"
+}
+
+# Универсальная функция для показа экранов успеха/ошибки с поддержкой мгновенного перевода
+function Show-Message {
+    param([array]$Lines, [array]$Colors)
+    while ($true) {
+        Clear-Host
+        Write-Host ""
+        for ($i=0; $i -lt $Lines.Count; $i++) {
+            $c = if ($i -lt $Colors.Count) { $Colors[$i] } else { "White" }
+            Write-Centered (L $Lines[$i]) $c
+        }
+        if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+        break
     }
 }
 
 function Get-TextInput([string]$PromptMsg) {
     try { [Console]::CursorVisible = $true } catch {}
-    Write-Host "`n$($PromptMsg): " -NoNewline -ForegroundColor Cyan
+    Clear-Host
+    Write-Host ""
+    Write-Centered $PromptMsg "Cyan"
+    
+    $w = $Host.UI.WindowSize.Width
+    if ($w -lt 20) { $w = 110 }
+    $startX = [math]::Max(0, [math]::Floor(($w - 30) / 2))
+    
+    [Console]::SetCursorPosition($startX, [Console]::CursorTop)
+    Write-Host " > " -NoNewline -ForegroundColor Yellow
     $val = Read-Host
     try { [Console]::CursorVisible = $false } catch {}
     return $val
 }
 
 function Get-AdapterMenu {
-    param([string]$Title)
-    $adapters = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' })
-    if ($adapters.Count -eq 0) { 
-        Clear-Host
-        Write-Host (L "No network adapters found in the system") -ForegroundColor Red
-        Start-Sleep 2; return $null 
-    }
-    $items = @()
-    foreach ($a in $adapters) {
-        if ($a.Status -eq 'Up') { $st = L "ADAPT_WORKING" }
-        elseif ($a.Status -eq 'Disabled') { $st = L "ADAPT_DISABLED" }
-        elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
-        else { $st = $a.Status }
+    param([string]$TitleKey)
+    $idx = 0
+    while ($true) {
+        $adapters = Get-AdaptersCached
+        if ($adapters.Count -eq 0) { 
+            Show-Message @("No network adapters found in the system") @("Red")
+            return $null 
+        }
+        $items = @()
+        foreach ($a in $adapters) {
+            if ($a.Status -eq 'Up') { $st = L "ADAPT_WORKING" }
+            elseif ($a.Status -eq 'Disabled') { $st = L "ADAPT_DISABLED" }
+            elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
+            else { $st = $a.Status }
+            
+            $items += @{ Name = "$($a.InterfaceAlias) [$st]"; Value = $a.InterfaceAlias }
+        }
+        $items += @{ Name = L "Back"; Value = 'BACK' }
         
-        $items += @{ Name = "$($a.InterfaceAlias) [$st]"; Value = $a.InterfaceAlias }
+        $res = Show-Menu -Title (L $TitleKey) -Items $items -DefaultIndex $idx
+        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
+        if ($res.Action -eq 'Back') { return $null }
+        return $res.Value
     }
-    $items += @{ Name = L "Back"; Value = 'BACK' }
-    
-    $res = Show-Menu -Title $Title -Items $items
-    if ($res.Action -eq 'Back') { return $null }
-    return $res.Value
 }
 
 function Test-IPAddress { param([string]$IP); return [System.Net.IPAddress]::TryParse($IP, [ref]0) }
 
 function Ensure-AdapterEnabled {
     param([string]$Alias)
-    $ad = Get-NetAdapter -Name $Alias -ErrorAction SilentlyContinue
+    $ad = Get-AdaptersCached | Where-Object { $_.InterfaceAlias -eq $Alias }
     if ($ad -and $ad.Status -eq 'Disabled') {
         Enable-NetAdapter -Name $Alias -Confirm:$false
-        Start-Sleep 2
+        Flush-AdapterCache
+        Start-Sleep 1
     }
 }
 
-# --- БЫСТРЫЙ ВЫВОД СТАТУСА ---
+# --- ВЫВОД СТАТУСА ---
 function Show-Status {
-    Clear-Host
-    Write-Host (L "=== Active Local Adapters (This PC) ===") -ForegroundColor Cyan
-    Write-Host "--------------------------------------------------" -ForegroundColor DarkCyan
-    
-    $found = $false
-    $adapters = Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' }
-    
-    foreach ($ad in $adapters) {
-        if ($ad.Status -eq 'Up') {
-            $ipObj = Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($ipObj) {
-                $found = $true
-                $dhcpInfo = Get-NetIPInterface -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
-                $dhcpStr = if ($dhcpInfo.Dhcp -eq 'Enabled') { L "Automatic (DHCP)" } else { L "Manual (Static)" }
-                
-                $route = Get-NetRoute -InterfaceIndex $ad.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
-                $gw = if ($route) { $route.NextHop } else { $null }
+    $blockW = 75
+    while ($true) {
+        Clear-Host
+        [Console]::SetCursorPosition(0, 0)
+        Write-Host ""
+        Write-Centered (L "=== Active Local Adapters (This PC) ===") "Cyan"
+        Write-Centered "--------------------------------------------------" "DarkCyan"
+        Write-Host ""
+        
+        $w = $Host.UI.WindowSize.Width
+        if ($w -lt 20) { $w = 110 }
+        $startX = [math]::Max(0, [math]::Floor(($w - $blockW) / 2))
 
-                $dnsObj = Get-DnsClientServerAddress -InterfaceIndex $ad.ifIndex -ErrorAction SilentlyContinue
-                $dns = ($dnsObj.ServerAddresses) -join ", "
-                if (-not $dns) { $dns = L "None" }
+        $found = $false
+        $adapters = Get-AdaptersCached
+        
+        foreach ($ad in $adapters) {
+            if ($ad.Status -eq 'Up') {
+                $ipObj = Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($ipObj) {
+                    $found = $true
+                    $dhcpInfo = Get-NetIPInterface -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+                    $dhcpStr = if ($dhcpInfo.Dhcp -eq 'Enabled') { L "Automatic (DHCP)" } else { L "Manual (Static)" }
+                    
+                    $route = Get-NetRoute -InterfaceIndex $ad.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+                    $gw = if ($route) { $route.NextHop } else { $null }
 
-                Write-Host "$(L 'Network Adapter')  : $($ad.InterfaceAlias)" -ForegroundColor Cyan
-                Write-Host "$(L 'Device Hardware')  : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
-                Write-Host "$(L 'MAC Address')      : $($ad.MacAddress)" -ForegroundColor DarkGray
-                Write-Host "$(L 'Operating Mode')   : $dhcpStr" -ForegroundColor Yellow
-                Write-Host "$(L 'Current IP Address') : $($ipObj.IPAddress)" -ForegroundColor Green
-                if ($gw) { Write-Host "$(L 'Default Gateway')  : $gw" -ForegroundColor Green } 
-                else { Write-Host "$(L 'Default Gateway')  : $(L 'None')" -ForegroundColor Red }
-                Write-Host "$(L 'DNS Servers')      : $dns" -ForegroundColor Magenta
-                Write-Host "--------------------------------------------------" -ForegroundColor DarkCyan
+                    $dnsObj = Get-DnsClientServerAddress -InterfaceIndex $ad.ifIndex -ErrorAction SilentlyContinue
+                    $dns = ($dnsObj.ServerAddresses) -join ", "
+                    if (-not $dns) { $dns = L "None" }
+
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network Adapter').PadRight(20)) : $($ad.InterfaceAlias)" -ForegroundColor Cyan
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Hardware').PadRight(20)) : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(20)) : $($ad.MacAddress)" -ForegroundColor DarkGray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Operating Mode').PadRight(20)) : $dhcpStr" -ForegroundColor Yellow
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Current IP Address').PadRight(20)) : $($ipObj.IPAddress)" -ForegroundColor Green
+                    
+                    if ($gw) { 
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(20)) : $gw" -ForegroundColor Green 
+                    } else { 
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(20)) : $(L 'None')" -ForegroundColor Red 
+                    }
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'DNS Servers').PadRight(20)) : $dns" -ForegroundColor Magenta
+                    Write-Host ""
+                }
             }
         }
-    }
-    
-    if (-not $found) { Write-Host (L "No connected and configured networks found") -ForegroundColor Red }
-    
-    Write-Host ""
-    Write-Host (L "=== Disconnected / Disabled Adapters ===") -ForegroundColor Cyan
-    Write-Host "--------------------------------------------------" -ForegroundColor DarkCyan
-    
-    $inactiveFound = $false
-    foreach ($a in $adapters) {
-        if ($a.Status -ne 'Up') {
-            $inactiveFound = $true
-            $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
-            Write-Host " $($a.InterfaceAlias)" -ForegroundColor Gray
-            Write-Host "    $(L 'Device Hardware'): $($a.InterfaceDescription)" -ForegroundColor DarkGray
-            Write-Host "    $(L 'Status')         : $reason" -ForegroundColor Red
-            Write-Host "--------------------------------------------------" -ForegroundColor DarkCyan
+        
+        if (-not $found) { Write-Centered (L "No connected and configured networks found") "Red" }
+        
+        Write-Host ""
+        Write-Centered (L "=== Disconnected / Disabled Adapters ===") "Cyan"
+        Write-Centered "--------------------------------------------------" "DarkCyan"
+        Write-Host ""
+        
+        $inactiveFound = $false
+        foreach ($a in $adapters) {
+            if ($a.Status -ne 'Up') {
+                $inactiveFound = $true
+                $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$($a.InterfaceAlias)" -ForegroundColor Gray
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Device Hardware').PadRight(18)) : $($a.InterfaceDescription)" -ForegroundColor DarkGray
+                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Status').PadRight(18)) : $reason" -ForegroundColor Red
+                Write-Host ""
+            }
         }
-    }
-    
-    if (-not $inactiveFound) {
-        Write-Host " $(L 'No disabled adapters found')" -ForegroundColor DarkGray
-        Write-Host "--------------------------------------------------" -ForegroundColor DarkCyan
-    }
+        
+        if (-not $inactiveFound) {
+            Write-Centered (L "No disabled adapters found") "DarkGray"
+        }
 
-    Wait-Back
+        Clear-Tail
+        if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+        break
+    }
 }
 
 function Get-MacByIP([string]$IP) {
@@ -489,10 +617,7 @@ function Get-MacByIP([string]$IP) {
         $macLen = [uint32]6
         
         $res = [NetAPI]::SendARP($destIP, 0, $macAddr, [ref]$macLen)
-        if ($res -eq 0) {
-            $hex = $macAddr | ForEach-Object { $_.ToString("X2") }
-            return $hex -join "-"
-        }
+        if ($res -eq 0) { return ($macAddr | ForEach-Object { $_.ToString("X2") }) -join "-" }
     } catch {}
     return "00-00-00-00-00-00"
 }
@@ -501,33 +626,19 @@ function Get-VendorByMac([string]$Mac) {
     $prefix = ($Mac.Replace("-", "").Substring(0,6)).ToUpper()
     $vendors = @{
         "001CB3"="Apple"; "002500"="Apple"; "28CFE9"="Apple"; "8C8590"="Apple"; "F8FFC2"="Apple"
-        "B4F1CB"="Apple"; "C8B5B7"="Apple"; "3C0754"="Apple"; "4098AD"="Apple"; "0010FA"="Apple"
-        "001451"="Apple"; "0016CB"="Apple"; "CCB8A8"="Apple"; "D4619D"="Apple"; "E0B52D"="Apple"
-        "001A11"="Google"; "F88A5E"="Google"; "3C5AB4"="Google"
-        "001E10"="Cisco"; "0014F2"="Cisco"; "001A6C"="Cisco"; "00259C"="Cisco"
-        "001999"="Fujitsu"; "000B5D"="Fujitsu"
-        "0017C4"="ASUS"; "001A92"="ASUS"; "001E8C"="ASUS"; "14DDA9"="ASUS"; "04D4C4"="ASUS"
-        "000D3A"="Microsoft"; "00125A"="Microsoft"; "0017FA"="Microsoft"; "281878"="Microsoft"; "C8F650"="Microsoft"
-        "001132"="Synology"; "00089B"="QNAP"; "245EBE"="QNAP"
-        "E48D8C"="MikroTik"; "000C42"="MikroTik"; "D4CA6D"="MikroTik"
-        "C04A00"="TP-Link"; "E848B8"="TP-Link"; "F81A67"="TP-Link"; "D807B6"="TP-Link"; "503EAA"="TP-Link"; "B0BE76"="TP-Link"
-        "080027"="VirtualBox"; "000569"="VMware"; "000C29"="VMware"; "005056"="VMware"
-        "001BDC"="Samsung"; "00215D"="Samsung"; "0023D6"="Samsung"; "CCB11A"="Samsung"; "D022BE"="Samsung"
-        "002268"="Xiaomi"; "009ECA"="Xiaomi"; "286C07"="Xiaomi"; "38A4ED"="Xiaomi"; "7C49EB"="Xiaomi"
-        "001A4B"="HP"; "001E0B"="HP"; "002264"="HP"; "0025B3"="HP"; "002655"="HP"
-        "000000"="Xerox"; "000039"="Toshiba"; "000048"="Seiko"; "000074"="Ricoh"
-        "000086"="Megahertz"; "0000C1"="Olicom"; "0000F8"="Digital"; "000102"="BBN"
-        "F0B429"="Ubiquiti"; "0418D6"="Ubiquiti"; "44D9E7"="Ubiquiti"; "802AA8"="Ubiquiti"; "B4FBE4"="Ubiquiti"
-        "0001E3"="Siemens"; "0001E6"="HP"; "0002B3"="Intel"; "0002B4"="Cisco"; "0003FF"="Microsoft"
-        "00045A"="Linksys"; "0005CD"="D-Link"; "00095B"="Netgear"; "000FB5"="Netgear"; "00146C"="Netgear"
-        "0018E7"="Camara / IP WebCam"; "001A79"="Oki"
+        "001E10"="Cisco"; "0017C4"="ASUS"; "001A92"="ASUS"; "000D3A"="Microsoft"; "281878"="Microsoft"
+        "001132"="Synology"; "00089B"="QNAP"; "E48D8C"="MikroTik"; "000C42"="MikroTik"
+        "C04A00"="TP-Link"; "E848B8"="TP-Link"; "080027"="VirtualBox"; "000569"="VMware"
+        "001BDC"="Samsung"; "002268"="Xiaomi"; "001A4B"="HP"; "000000"="Xerox"
+        "F0B429"="Ubiquiti"; "0418D6"="Ubiquiti"; "0001E3"="Siemens"; "0002B3"="Intel"
     }
     if ($vendors.ContainsKey($prefix)) { return $vendors[$prefix] }
     return ""
 }
 
+# --- ИНТЕЛЛЕКТУАЛЬНЫЙ LAN СКАНЕР ---
 function Scan-LAN {
-    $iface = Get-AdapterMenu (L "Select an adapter:")
+    $iface = Get-AdapterMenu "Select an adapter:"
     if (-not $iface) { return }
     Ensure-AdapterEnabled $iface
 
@@ -537,9 +648,7 @@ function Scan-LAN {
     $gwIP = if ($gwRoute) { $gwRoute.NextHop } else { "" }
 
     if (-not $ipInfo) {
-        Clear-Host
-        Write-Host (L "Adapter does not have a valid IP for scanning.") -ForegroundColor Red
-        Wait-Back
+        Show-Message @("Adapter does not have a valid IP for scanning.") @("Red")
         return
     }
 
@@ -548,13 +657,18 @@ function Scan-LAN {
     $localMac = $ad.MacAddress.Replace(':', '-')
     
     $dnsCache = @{}
-    $activeDevices = @()
+    $deviceState = @{}
+    $blockW = 85
 
     Clear-Host
-    Write-Host "$(L 'Scanning local network: ') $baseIP.1 - $baseIP.254" -ForegroundColor Cyan
-    Write-Host (L "Scanning...") -ForegroundColor Yellow
+    $lastWinWidth = $Host.UI.WindowSize.Width
 
     while ($true) {
+        if ($Host.UI.WindowSize.Width -ne $lastWinWidth) {
+            $lastWinWidth = $Host.UI.WindowSize.Width
+            Clear-Host
+        }
+
         $pingers = @(); $tasks = @()
         foreach ($i in 1..254) {
             $target = "$baseIP.$i"; $ping = New-Object System.Net.NetworkInformation.Ping
@@ -562,41 +676,52 @@ function Scan-LAN {
         }
         [System.Threading.Tasks.Task]::WaitAll($tasks) | Out-Null
         
-        $newActiveDevices = @()
+        $now = [DateTime]::Now
         for ($i=0; $i -lt $tasks.Count; $i++) {
             if ($tasks[$i].Result.Status -eq 'Success') { 
-                $newActiveDevices += @{
-                    IP = $tasks[$i].Result.Address.ToString()
+                $ip = $tasks[$i].Result.Address.ToString()
+                $mac = if ($ip -eq $ipStr) { $localMac } else { Get-MacByIP $ip }
+                
+                $deviceState[$ip] = @{
                     TTL = $tasks[$i].Result.Options.Ttl
+                    LastSeen = $now
+                    MAC = $mac
                 }
             }
             $pingers[$i].Dispose()
         }
-        $activeDevices = $newActiveDevices
 
-        foreach ($dev in $activeDevices) {
-            if (-not $dnsCache.ContainsKey($dev.IP)) {
-                $dnsCache[$dev.IP] = [System.Net.Dns]::GetHostEntryAsync($dev.IP)
-            }
+        $ipsToRemove = @()
+        foreach ($ip in $deviceState.Keys) {
+            if (($now - $deviceState[$ip].LastSeen).TotalSeconds -gt 15) { $ipsToRemove += $ip }
+        }
+        foreach ($ip in $ipsToRemove) { $deviceState.Remove($ip) }
+
+        foreach ($ip in $deviceState.Keys) {
+            if (-not $dnsCache.ContainsKey($ip)) { $dnsCache[$ip] = [System.Net.Dns]::GetHostEntryAsync($ip) }
         }
 
+        $sortedIPs = $deviceState.Keys | Sort-Object { [Version]$_ }
+
         [Console]::SetCursorPosition(0, 0)
-        Write-LineClear (L "=== Found Devices ===") "Cyan"
-        Write-LineClear (L " Real-time update... Press [LEFT] to exit | [F5] Reload Code") "DarkGray"
-        Write-LineClear "--------------------------------------------------------" "DarkCyan"
+        Write-Host ""
+        Write-Centered (L "=== Found Devices (Scanning in background...) ===") "Cyan"
+        Write-Centered (L '[LEFT] Go Back | [Ctrl+L] Lang') "DarkGray"
+        Write-Centered "--------------------------------------------------------" "DarkCyan"
+        Write-Host ""
         
-        foreach ($dev in $activeDevices) {
-            $a_ip = $dev.IP
+        $w = $Host.UI.WindowSize.Width
+        if ($w -lt 20) { $w = 110 }
+        $startX = [math]::Max(0, [math]::Floor(($w - $blockW) / 2))
+        
+        foreach ($ip in $sortedIPs) {
+            $dev = $deviceState[$ip]
+            $mac = $dev.MAC
             $ttl = $dev.TTL
-            
-            $mac = "00-00-00-00-00-00"
-            if ($a_ip -eq $ipStr) { $mac = $localMac } else { $mac = Get-MacByIP $a_ip }
 
             $hostName = ""
-            $dnsTask = $dnsCache[$a_ip]
-            if ($dnsTask -and $dnsTask.IsCompleted -and -not $dnsTask.IsFaulted) { 
-                $hostName = $dnsTask.Result.HostName 
-            }
+            $dnsTask = $dnsCache[$ip]
+            if ($dnsTask -and $dnsTask.IsCompleted -and -not $dnsTask.IsFaulted) { $hostName = $dnsTask.Result.HostName }
             if (-not $hostName) { $hostName = L "Unknown Device" }
 
             $devType = "PC / IoT Device"
@@ -607,12 +732,8 @@ function Scan-LAN {
             elseif ($ttl -gt 200 -and $ttl -le 255) { $osHint = "Cisco / Core Network" }
             elseif ($ttl -gt 40 -and $ttl -le 65) { $osHint = "Linux / Android / iOS / macOS" }
 
-            if ($a_ip -eq $ipStr) { 
-                $devType = L "This PC (Windows)" 
-            } 
-            elseif ($a_ip -eq $gwIP) { 
-                $devType = if ($vendor) { "$vendor $((L 'Router / Access Point'))" } else { L "Router / Access Point" }
-            } 
+            if ($ip -eq $ipStr) { $devType = L "This PC (Windows)" } 
+            elseif ($ip -eq $gwIP) { $devType = if ($vendor) { "$vendor $((L 'Router / Access Point'))" } else { L "Router / Access Point" } } 
             else {
                 $hostLow = $hostName.ToLower()
                 if ($hostLow -match "iphone|ipad|macbook|apple|imac") { $devType = "Apple Device ($osHint)" }
@@ -620,18 +741,7 @@ function Scan-LAN {
                 elseif ($hostLow -match "tv|kdl-|bravia|webos|tizen|roku|chromecast") { $devType = "Smart TV / Media Player" }
                 elseif ($hostLow -match "printer|hp-|epson|canon|brother|lexmark") { $devType = L "Network Printer" }
                 elseif ($hostLow -match "desktop|laptop|pc-|win-") { $devType = "Windows PC / Laptop" }
-                elseif ($hostLow -match "ds[0-9]|diskstation|qnap|nas") { $devType = "NAS Storage Server" }
-                elseif ($vendor) {
-                    if ($vendor -eq "Apple") { $devType = "Apple iPhone / Mac" }
-                    elseif ($vendor -match "Samsung|Xiaomi|Huawei|Oppo|OnePlus") { $devType = "$vendor Smartphone / Smart Device" }
-                    elseif ($vendor -match "Sony|LG") { $devType = "$vendor Smart TV / Console" }
-                    elseif ($vendor -match "TP-Link|ASUS|D-Link|Netgear|MikroTik|Ubiquiti|Keenetic|Zyxel|Cisco|Linksys") { $devType = "$vendor Network / Router" }
-                    elseif ($vendor -match "HP|Canon|Epson|Brother|Oki|Xerox|Ricoh") { $devType = "$vendor $((L 'Network Printer'))" }
-                    elseif ($vendor -match "Synology|QNAP") { $devType = "$vendor NAS Storage" }
-                    elseif ($vendor -match "Microsoft") { $devType = "Microsoft Xbox / Surface" }
-                    elseif ($vendor -match "Nintendo") { $devType = "Nintendo Switch" }
-                    else { $devType = "$vendor Device ($osHint)" }
-                }
+                elseif ($vendor) { $devType = "$vendor Device ($osHint)" }
                 else {
                     try {
                         $firstOctet = [convert]::ToInt32($mac.Substring(0,2), 16)
@@ -641,31 +751,29 @@ function Scan-LAN {
                 }
             }
 
-            Write-LineClear "$(L 'IP Address')       : $a_ip" "Green"
-            Write-LineClear "$(L 'MAC Address')      : $mac" "Gray"
-            Write-LineClear "$(L 'Hostname')         : $hostName" "White"
-            Write-LineClear "$(L 'Device Type/Info') : $devType" "Yellow"
-            Write-LineClear "--------------------------------------------------------" "DarkCyan"
+            $ipColor = if (($now - $dev.LastSeen).TotalSeconds -lt 4) { "Green" } else { "DarkGray" }
+
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'IP Address').PadRight(20)) : $ip" -ForegroundColor $ipColor
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(20)) : $mac" -ForegroundColor Gray
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Hostname').PadRight(20)) : $hostName" -ForegroundColor White
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Type/Info').PadRight(20)) : $devType" -ForegroundColor Yellow
+            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "--------------------------------------------------------" -ForegroundColor DarkCyan
         }
         
-        $currentTop = [Console]::CursorTop
-        while ($currentTop -lt $Host.UI.WindowSize.Height - 1) { Write-LineClear "" "Black"; $currentTop++ }
+        Clear-Tail
 
         $breakLoop = $false
-        for ($i=0; $i -lt 25; $i++) {
+        for ($i=0; $i -lt 15; $i++) {
             if ([Console]::KeyAvailable) {
                 $keyInfo = [System.Console]::ReadKey($true)
                 $k = $keyInfo.Key
                 
                 if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($k -eq [ConsoleKey]::L)) {
+                    $global:SysLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
+                    Set-Content -Path $LangCacheFile -Value $global:SysLang -Encoding UTF8
                     Clear-Host
-                    $newLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
-                    Set-Content -Path $LangCacheFile -Value $newLang -Encoding UTF8
-                    Write-Host "`n   Switching language..." -ForegroundColor Magenta
-                    Start-Sleep -Milliseconds 200
-                    [Environment]::Exit(99)
+                    break
                 }
-
                 if ($k -eq 'F5') { [Environment]::Exit(99) }
                 if ($k -match 'LeftArrow|Escape|Backspace') { $breakLoop = $true; break }
             }
@@ -685,28 +793,26 @@ function Manage-DHCP {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Manage DHCP (Enable / Disable / Renew)") -Items $items -DefaultIndex $idx
-        $idx = $actRes.Index
+        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
         if ($actRes.Action -eq 'Back') { break }
         
         $act = $actRes.Value
-        $iface = Get-AdapterMenu (L "Select an adapter:")
+        $iface = Get-AdapterMenu "Select an adapter:"
         if (-not $iface) { continue }
         Ensure-AdapterEnabled $iface
-        Clear-Host
         
         if ($act -eq "1") {
             Set-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -Dhcp Enabled -ErrorAction SilentlyContinue | Out-Null
             Set-DnsClientServerAddress -InterfaceAlias $iface -ResetServerAddresses -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
+            Show-Message @('Success!') @('Green')
         } elseif ($act -eq "2") {
             Set-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
+            Show-Message @('Success!') @('Green')
         } elseif ($act -eq "3") {
             ipconfig /release "$iface" | Out-Null
             ipconfig /renew "$iface" | Out-Null
-            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
+            Show-Message @('Success!') @('Green')
         }
-        Wait-Back
     }
 }
 
@@ -722,13 +828,12 @@ function Manage-DNS {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Quick DNS Setup (Cloudflare, Google, etc.)") -Items $items -DefaultIndex $idx
-        $idx = $actRes.Index
+        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
         if ($actRes.Action -eq 'Back') { break }
         
-        $iface = Get-AdapterMenu (L "Select an adapter:")
+        $iface = Get-AdapterMenu "Select an adapter:"
         if (-not $iface) { continue }
         Ensure-AdapterEnabled $iface
-        Clear-Host
         
         if ($actRes.Value -eq "AUTO") {
             Set-DnsClientServerAddress -InterfaceAlias $iface -ResetServerAddresses -ErrorAction SilentlyContinue | Out-Null
@@ -736,8 +841,7 @@ function Manage-DNS {
             $servers = $actRes.Value -split ","
             Set-DnsClientServerAddress -InterfaceAlias $iface -ServerAddresses $servers -ErrorAction SilentlyContinue | Out-Null
         }
-        Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-        Wait-Back
+        Show-Message @('Success!') @('Green')
     }
 }
 
@@ -750,34 +854,41 @@ function Manage-Resets {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Network Resets & Troubleshooting") -Items $items -DefaultIndex $idx
-        $idx = $actRes.Index
+        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
         if ($actRes.Action -eq 'Back') { break }
         
         if ($actRes.Value -eq "1") {
-            $iface = Get-AdapterMenu (L "Select an adapter:")
+            $iface = Get-AdapterMenu "Select an adapter:"
             if ($iface) {
-                $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
-                $confirmRes = Show-Menu -Title (L "Are you SURE you want to clear adapter settings?") -Items $svMenu
-                if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
-                    Clear-Host
-                    Remove-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-                    Remove-NetRoute -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-                    Set-DnsClientServerAddress -InterfaceAlias $iface -ResetServerAddresses -ErrorAction SilentlyContinue
-                    Write-Host "`n$(L 'Adapter settings cleared successfully')" -ForegroundColor Green
-                    Wait-Back
+                $confIdx = 0
+                while ($true) {
+                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                    $confirmRes = Show-Menu -Title (L "Are you SURE you want to clear adapter settings?") -Items $svMenu -DefaultIndex $confIdx
+                    if ($confirmRes.Action -eq 'LangChange') { $confIdx = $confirmRes.Index; continue }
+                    if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
+                        Remove-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+                        Remove-NetRoute -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+                        Set-DnsClientServerAddress -InterfaceAlias $iface -ResetServerAddresses -ErrorAction SilentlyContinue
+                        Show-Message @('Adapter settings cleared successfully') @('Green')
+                    }
+                    break
                 }
             }
         } elseif ($actRes.Value -eq "2") {
-            Clear-Host
-            Write-Host (L "Resetting Windows network stack...") -ForegroundColor Cyan
-            Write-Host "----------------------------------------" -ForegroundColor DarkCyan
-            ipconfig /flushdns | Out-Host
-            netsh winsock reset | Out-Host
-            netsh int ip reset | Out-Host
-            Write-Host "----------------------------------------" -ForegroundColor DarkCyan
-            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-            Write-Host (L "A computer restart is recommended after this reset.") -ForegroundColor Yellow
-            Wait-Back
+            while ($true) {
+                Clear-Host
+                Write-Host ""
+                Write-Centered (L "Resetting Windows network stack...") "Cyan"
+                Write-Centered "----------------------------------------" "DarkCyan"
+                ipconfig /flushdns | Out-Null
+                netsh winsock reset | Out-Null
+                netsh int ip reset | Out-Null
+                Write-Host ""
+                Write-Centered (L 'Success!') "Green"
+                Write-Centered (L "A computer restart is recommended after this reset.") "Yellow"
+                if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+                break
+            }
         }
     }
 }
@@ -785,30 +896,84 @@ function Manage-Resets {
 function Manage-Adapters {
     $idx = 0
     while ($true) {
-        $adapters = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' })
+        $adapters = Get-AdaptersCached
         $items = @()
         foreach ($a in $adapters) {
             if ($a.Status -eq 'Up') { $st = L "ADAPT_WORKING" }
             elseif ($a.Status -eq 'Disabled') { $st = L "ADAPT_DISABLED" }
             elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
             else { $st = $a.Status }
-            
             $items += @{ Name = "$($a.InterfaceAlias) [$st]"; Value = $a.InterfaceAlias }
         }
         $items += @{ Name = L "Back"; Value = 'BACK' }
         
         $res = Show-Menu -Title (L "Enable / Disable network adapters") -Items $items -IsToggleMenu -DefaultIndex $idx
+        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
         if ($res.Action -eq 'Back') { break }
         
-        Clear-Host
         if ($res.Action -eq 'Enable') {
-            Write-Host "`n$(L 'Enabling adapter') '$($res.Value)'..." -ForegroundColor Cyan
             Enable-NetAdapter -Name $res.Value -Confirm:$false
-            Start-Sleep 2
+            Flush-AdapterCache
         } elseif ($res.Action -eq 'Disable') {
-            Write-Host "`n$(L 'Disabling adapter') '$($res.Value)'..." -ForegroundColor Cyan
             Disable-NetAdapter -Name $res.Value -Confirm:$false
-            Start-Sleep 2
+            Flush-AdapterCache
+        }
+    }
+}
+
+function Manage-Profiles {
+    $pIdx = 0
+    while ($true) {
+        if (-not (Test-Path $ProfilePath)) { 
+            Show-Message @("You don't have any saved profiles yet.", "They will appear here when you save settings while applying a new IP.") @("Yellow", "DarkGray")
+            break
+        }
+        $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($profiles.Count -eq 0) {
+            Show-Message @("You don't have any saved profiles yet.") @("Yellow")
+            break
+        }
+        
+        $pItems = @()
+        foreach ($p in $profiles) { $pItems += @{Name = "$($p.Name) [$($p.IP)]"; Value = $p} }
+        $pItems += @{Name = L "Back"; Value = 'BACK'}
+        
+        $pRes = Show-Menu -Title (L "Manage Saved Profiles") -Items $pItems -DefaultIndex $pIdx
+        if ($pRes.Action -eq 'LangChange') { $pIdx = $pRes.Index; continue }
+        if ($pRes.Action -eq 'Back') { break }
+        
+        $targetProf = $pRes.Value
+        
+        $actIdx = 0
+        while ($true) {
+            $actItems = @(
+                @{Name = L "Apply Profile"; Value = "APPLY"}
+                @{Name = L "Rename Profile"; Value = "RENAME"}
+                @{Name = L "Delete Profile"; Value = "DELETE"}
+                @{Name = L "Cancel"; Value = "BACK"}
+            )
+            $act = Show-Menu -Title "'$($targetProf.Name)' Options" -Items $actItems -DefaultIndex $actIdx
+            if ($act.Action -eq 'LangChange') { $actIdx = $act.Index; continue }
+            if ($act.Action -eq 'Back' -or $act.Value -eq 'BACK') { $act = $null; break }
+            break
+        }
+        if (-not $act) { continue }
+        
+        if ($act.Value -eq "APPLY") {
+            Set-StaticIP -InterfaceAlias $targetProf.Interface -IPAddress $targetProf.IP -PrefixLength $targetProf.Mask -DefaultGateway $targetProf.Gateway -Mode 'Replace'
+        } elseif ($act.Value -eq "DELETE") {
+            $profiles = $profiles | Where-Object { $_.Name -ne $targetProf.Name -or $_.IP -ne $targetProf.IP }
+            $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
+            Show-Message @('Profile deleted.') @('Green')
+        } elseif ($act.Value -eq "RENAME") {
+            $newName = Get-TextInput (L "Enter new name for the profile")
+            if (-not [string]::IsNullOrWhiteSpace($newName)) {
+                foreach ($p in $profiles) {
+                    if ($p.Name -eq $targetProf.Name -and $p.IP -eq $targetProf.IP) { $p.Name = $newName; break }
+                }
+                $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
+                Show-Message @('Profile renamed.') @('Green')
+            }
         }
     }
 }
@@ -826,9 +991,11 @@ function Set-StaticIP {
             Remove-NetRoute -DestinationPrefix "0.0.0.0/0" -InterfaceAlias $InterfaceAlias -ErrorAction SilentlyContinue
             New-NetRoute -InterfaceAlias $InterfaceAlias -DestinationPrefix "0.0.0.0/0" -NextHop $DefaultGateway -ErrorAction Stop | Out-Null
         }
-        Write-Host "`n$(L 'Settings successfully applied')" -ForegroundColor Green
-    } catch { Write-Host "`nError: $_" -ForegroundColor Red }
-    Wait-Back
+        Show-Message @('Settings successfully applied') @('Green')
+    } catch { 
+        $err = "$(L 'Error'): $_"
+        Show-Message @($err) @('Red') 
+    }
 }
 
 function Manage-WiFi {
@@ -842,101 +1009,128 @@ function Manage-WiFi {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Wi-Fi Management (Search, Connect, Passwords)") -Items $items -DefaultIndex $idx
-        $idx = $actRes.Index
+        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
         if ($actRes.Action -eq 'Back') { break }
         
         $act = $actRes.Value
         if ($act -eq "1") {
-            $res = Show-Menu -Title (L "Show available networks (Live Radar)") -Items @() -DynamicWiFi
+            $radarIdx = 0
+            while ($true) {
+                $res = Show-Menu -Title (L "Show available networks (Live Radar)") -Items @() -DynamicWiFi -DefaultIndex $radarIdx
+                if ($res.Action -eq 'LangChange') { $radarIdx = $res.Index; continue }
+                break
+            }
             if ($res.Action -ne 'Back') {
                 $target = $res.Value
-                Clear-Host
                 $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
                 if ($profiles -contains $target) {
-                    Write-Host "$(L 'This network is already saved, connecting...') '$target'" -ForegroundColor Yellow
-                    netsh wlan connect name="$target" | Out-Null
+                    while ($true) {
+                        Clear-Host
+                        Write-Host ""
+                        Write-Centered "$(L 'This network is already saved, connecting...') '$target'" "Yellow"
+                        netsh wlan connect name="$target" | Out-Null
+                        if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+                        break
+                    }
                 } else {
                     $pwd = Get-TextInput (L "Enter network password (Press Enter to abort)")
                     if ([string]::IsNullOrWhiteSpace($pwd)) {
-                        Write-Host "`n$(L 'Action canceled by user.')" -ForegroundColor Red
-                        Wait-Back
+                        Show-Message @('Action canceled by user.') @('Red')
                         continue
                     }
-
-                    Write-Host "`n$(L 'Creating new network profile...')" -ForegroundColor Cyan
-                    $xml = @"
+                    while ($true) {
+                        Clear-Host
+                        Write-Host ""
+                        Write-Centered (L 'Creating new network profile...') "Cyan"
+                        $xml = @"
 <?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>$target</name><SSIDConfig><SSID><name>$target</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>auto</connectionMode><MSM><security><authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>$pwd</keyMaterial></sharedKey></security></MSM></WLANProfile>
 "@
-                    $xmlPath = "$env:TEMP\nwifi.xml"
-                    $xml | Out-File -FilePath $xmlPath -Encoding utf8
-                    netsh wlan add profile filename="$xmlPath" | Out-Null
-                    Remove-Item $xmlPath -ErrorAction SilentlyContinue
-                    netsh wlan connect name="$target" | Out-Null
+                        $xmlPath = "$env:TEMP\nwifi.xml"
+                        $xml | Out-File -FilePath $xmlPath -Encoding utf8
+                        netsh wlan add profile filename="$xmlPath" | Out-Null
+                        Remove-Item $xmlPath -ErrorAction SilentlyContinue
+                        netsh wlan connect name="$target" | Out-Null
+                        if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+                        break
+                    }
                 }
-                Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-                Wait-Back
+                Show-Message @('Success!') @('Green')
             }
         } elseif ($act -eq "2") {
-            $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
-            $pItems = @()
-            foreach ($p in $profiles) { $pItems += @{Name = $p; Value = $p} }
-            $pItems += @{Name = L "Back"; Value = 'BACK'}
-            
-            $targetRes = Show-Menu -Title (L "Connect to saved network") -Items $pItems
+            $savedIdx = 0
+            while ($true) {
+                $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
+                $pItems = @()
+                foreach ($p in $profiles) { $pItems += @{Name = $p; Value = $p} }
+                $pItems += @{Name = L "Back"; Value = 'BACK'}
+                
+                $targetRes = Show-Menu -Title (L "Connect to saved network") -Items $pItems -DefaultIndex $savedIdx
+                if ($targetRes.Action -eq 'LangChange') { $savedIdx = $targetRes.Index; continue }
+                break
+            }
             if ($targetRes.Action -ne 'Back') {
-                Clear-Host
                 netsh wlan connect name="$($targetRes.Value)" | Out-Null
-                Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-                Wait-Back
+                Show-Message @('Success!') @('Green')
             }
         } elseif ($act -eq "3") {
-            Clear-Host
-            Write-Host (L "=== Saved Wi-Fi Passwords ===") -ForegroundColor Cyan
-            Write-Host "------------------------------------------------" -ForegroundColor DarkCyan
-            
-            $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
-            if ($profiles.Count -eq 0) {
-                Write-Host "No Wi-Fi profiles found." -ForegroundColor DarkGray
-            } else {
-                foreach ($p in $profiles) {
-                    $keyLine = netsh wlan show profile name="$p" key=clear | Select-String "Key Content"
-                    $pwd = if ($keyLine) { ($keyLine.Line -split ':', 2)[1].Trim() } else { L "No password (Open)" }
-                    Write-Host "$(L 'Network')  : $p" -ForegroundColor Green
-                    Write-Host "$(L 'Password') : $pwd" -ForegroundColor Yellow
-                    Write-Host "------------------------------------------------" -ForegroundColor DarkCyan
+            while ($true) {
+                Clear-Host
+                Write-Host ""
+                Write-Centered (L "=== Saved Wi-Fi Passwords ===") "Cyan"
+                Write-Centered "------------------------------------------------" "DarkCyan"
+                Write-Host ""
+                
+                $w = $Host.UI.WindowSize.Width
+                if ($w -lt 20) { $w = 110 }
+                $startX = [math]::Max(0, [math]::Floor(($w - 65) / 2))
+
+                $profiles = @(netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object { ($_.Line -split ':', 2)[1].Trim() })
+                if ($profiles.Count -eq 0) {
+                    Write-Centered "No Wi-Fi profiles found." "DarkGray"
+                } else {
+                    foreach ($p in $profiles) {
+                        $keyLine = netsh wlan show profile name="$p" key=clear | Select-String "Key Content"
+                        $pwd = if ($keyLine) { ($keyLine.Line -split ':', 2)[1].Trim() } else { L "No password (Open)" }
+                        
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network').PadRight(20)) : $p" -ForegroundColor Green
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Password').PadRight(20)) : $pwd" -ForegroundColor Yellow
+                        Write-Host ""
+                    }
                 }
+                if ((Wait-Back) -eq "LANG_CHANGED") { continue }
+                break
             }
-            Wait-Back
         } elseif ($act -eq "4") {
-            $pItems = @(
-                @{Name = L "Enable Wi-Fi Boost (Max Performance)"; Value = "ENABLE"}
-                @{Name = L "Disable Wi-Fi Boost (Balanced/Default)"; Value = "DISABLE"}
-                @{Name = L "Back"; Value = "BACK"}
-            )
-            $pRes = Show-Menu -Title (L "Optimize Wi-Fi Power (Boost Signal)") -Items $pItems
+            $pwrIdx = 0
+            while ($true) {
+                $pItems = @(
+                    @{Name = L "Enable Wi-Fi Boost (Max Performance)"; Value = "ENABLE"}
+                    @{Name = L "Disable Wi-Fi Boost (Balanced/Default)"; Value = "DISABLE"}
+                    @{Name = L "Back"; Value = "BACK"}
+                )
+                $pRes = Show-Menu -Title (L "Optimize Wi-Fi Power (Boost Signal)") -Items $pItems -DefaultIndex $pwrIdx
+                if ($pRes.Action -eq 'LangChange') { $pwrIdx = $pRes.Index; continue }
+                break
+            }
             if ($pRes.Action -eq 'Back' -or $pRes.Value -eq 'BACK') { continue }
             
             $guidSub = "19cbb8fa-5279-450e-9fac-8a3d5fedd0c1"
             $guidSetting = "12bbebe6-58d6-4636-95bb-3217ef867c1a"
-            Clear-Host
             if ($pRes.Value -eq "ENABLE") {
-                Write-Host "`n$(L 'Applying Max Performance Power Plan to Wi-Fi adapter...')" -ForegroundColor Cyan
                 try {
                     powercfg /setacvalueindex SCHEME_CURRENT $guidSub $guidSetting 0
                     powercfg /setdcvalueindex SCHEME_CURRENT $guidSub $guidSetting 0
                     powercfg /setactive SCHEME_CURRENT
-                    Write-Host "`n$(L 'Wi-Fi transmission power boosted successfully!')" -ForegroundColor Green
-                } catch { Write-Host "`nError applying settings." -ForegroundColor Red }
+                    Show-Message @('Applying Max Performance Power Plan to Wi-Fi adapter...', 'Wi-Fi transmission power boosted successfully!') @('Cyan', 'Green')
+                } catch { Show-Message @('Error applying settings.') @('Red') }
             } elseif ($pRes.Value -eq "DISABLE") {
-                Write-Host "`n$(L 'Restoring default Power Plan for Wi-Fi adapter...')" -ForegroundColor Cyan
                 try {
                     powercfg /setacvalueindex SCHEME_CURRENT $guidSub $guidSetting 0
                     powercfg /setdcvalueindex SCHEME_CURRENT $guidSub $guidSetting 2
                     powercfg /setactive SCHEME_CURRENT
-                    Write-Host "`n$(L 'Wi-Fi power settings restored to default.')" -ForegroundColor Green
-                } catch { Write-Host "`nError applying settings." -ForegroundColor Red }
+                    Show-Message @('Restoring default Power Plan for Wi-Fi adapter...', 'Wi-Fi power settings restored to default.') @('Cyan', 'Green')
+                } catch { Show-Message @('Error applying settings.') @('Red') }
             }
-            Wait-Back
         }
     }
 }
@@ -951,7 +1145,7 @@ function Main-Menu {
             @{Name = L "Manage DHCP (Enable / Disable / Renew)"; Value = 4}
             @{Name = L "Quick DNS Setup (Cloudflare, Google, etc.)"; Value = 5}
             @{Name = L "Network Resets & Troubleshooting"; Value = 6}
-            @{Name = L "Saved profiles"; Value = 7}
+            @{Name = L "Manage Saved Profiles"; Value = 7}
             @{Name = L "Enable / Disable network adapters"; Value = 8}
             @{Name = L "Wi-Fi Management (Search, Connect, Passwords)"; Value = 9}
             @{Name = L "MAC Address Spoofing"; Value = 10}
@@ -960,90 +1154,68 @@ function Main-Menu {
         )
         
         $choice = Show-Menu -Title "netsett++ Main Menu" -Items $items -DefaultIndex $mainIndex -ShowLogo
-        $mainIndex = $choice.Index
-        
+        if ($choice.Action -eq 'LangChange') { $mainIndex = $choice.Index; continue }
         if ($choice.Action -eq 'Back') { break }
         
         switch ($choice.Value) {
             1 { Show-Status }
             2 {
-                $iface = Get-AdapterMenu (L "Select an adapter:")
+                $iface = Get-AdapterMenu "Select an adapter:"
                 if ($iface) {
-                    Clear-Host
                     $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
                     if (-not (Test-IPAddress $ip)) { continue }
                     $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
                     $gw = Get-TextInput (L "Enter Gateway IP (Enter to skip)")
                     
-                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
-                    $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu
-                    if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
-                        Clear-Host
-                        $pname = Get-TextInput (L "Enter a name for the profile")
-                        $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
-                        $profiles = @()
-                        if (Test-Path $ProfilePath) { $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json }
-                        $profiles += $prof
-                        $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
+                    $confIdx = 0
+                    while ($true) {
+                        $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                        $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu -DefaultIndex $confIdx
+                        if ($saveRes.Action -eq 'LangChange') { $confIdx = $saveRes.Index; continue }
+                        if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
+                            $pname = Get-TextInput (L "Enter a name for the profile")
+                            $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
+                            $profiles = @()
+                            if (Test-Path $ProfilePath) { $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json }
+                            $profiles += $prof
+                            $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
+                        }
+                        break
                     }
-                    Clear-Host
                     Set-StaticIP -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -DefaultGateway $gw -Mode 'Replace'
                 }
             }
             3 {
-                $iface = Get-AdapterMenu (L "Select an adapter:")
+                $iface = Get-AdapterMenu "Select an adapter:"
                 if ($iface) {
-                    Clear-Host
                     $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
                     if (-not (Test-IPAddress $ip)) { continue }
                     $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
                     New-NetIPAddress -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -AddressFamily IPv4 -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-                    Wait-Back
+                    Show-Message @('Success!') @('Green')
                 }
             }
             4 { Manage-DHCP }
             5 { Manage-DNS }
             6 { Manage-Resets }
-            7 {
-                if (-not (Test-Path $ProfilePath)) { 
-                    Clear-Host
-                    Write-Host "`n$(L "You don't have any saved profiles yet.")" -ForegroundColor Yellow
-                    Write-Host "$(L "They will appear here when you save settings while applying a new IP.")" -ForegroundColor DarkGray
-                    Wait-Back
-                    continue 
-                }
-                $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json
-                $pItems = @()
-                foreach ($p in $profiles) { $pItems += @{Name = "$($p.Name) [$($p.IP)]"; Value = $p} }
-                $pItems += @{Name = L "Back"; Value = 'BACK'}
-                
-                $pRes = Show-Menu -Title (L "Load and apply a profile") -Items $pItems
-                if ($pRes.Action -ne 'Back') {
-                    $p = $pRes.Value
-                    $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
-                    $confirmTitle = "Apply '$($p.Name)' to '$($p.Interface)'?"
-                    if ($global:SysLang -eq "ru") { $confirmTitle = "Применить '$($p.Name)' к '$($p.Interface)'?" }
-                    
-                    $confirmRes = Show-Menu -Title $confirmTitle -Items $svMenu
-                    if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
-                        Clear-Host
-                        Set-StaticIP -InterfaceAlias $p.Interface -IPAddress $p.IP -PrefixLength $p.Mask -DefaultGateway $p.Gateway -Mode 'Replace'
-                    }
-                }
-            }
+            7 { Manage-Profiles }
             8 { Manage-Adapters }
             9 { Manage-WiFi }
             10 {
-                $iface = Get-AdapterMenu (L "Select an adapter:")
+                $iface = Get-AdapterMenu "Select an adapter:"
                 if ($iface) {
-                    $mItems = @(
-                        @{Name = L "Enter new MAC manually"; Value = "1"}
-                        @{Name = L "Generate random MAC"; Value = "2"}
-                        @{Name = L "Restore original hardware MAC"; Value = "3"}
-                        @{Name = L "Back"; Value = "BACK"}
-                    )
-                    $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems
+                    $mIdx = 0
+                    while ($true) {
+                        $mItems = @(
+                            @{Name = L "Enter new MAC manually"; Value = "1"}
+                            @{Name = L "Generate random MAC"; Value = "2"}
+                            @{Name = L "Restore original hardware MAC"; Value = "3"}
+                            @{Name = L "Back"; Value = "BACK"}
+                        )
+                        $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems -DefaultIndex $mIdx
+                        if ($actRes.Action -eq 'LangChange') { $mIdx = $actRes.Index; continue }
+                        break
+                    }
                     if ($actRes.Action -ne 'Back') {
                         $act = $actRes.Value
                         $adapter = Get-NetAdapter -Name $iface
@@ -1057,7 +1229,6 @@ function Main-Menu {
                         if ($regPath -ne "") {
                             $newMac = ""
                             if ($act -eq "1") {
-                                Clear-Host
                                 $inputMac = Get-TextInput (L "Enter new MAC (no dashes, e.g. 001122334455)")
                                 if ($inputMac -match '^[0-9A-Fa-f]{12}$') { $newMac = $inputMac } else { continue }
                             } elseif ($act -eq "2") {
@@ -1069,14 +1240,12 @@ function Main-Menu {
                             if ($act -eq "3") { Remove-ItemProperty -Path $regPath -Name "NetworkAddress" -ErrorAction SilentlyContinue } 
                             else { Set-ItemProperty -Path $regPath -Name "NetworkAddress" -Value $newMac }
                             
-                            Clear-Host
-                            Write-Host "`n$(L 'Applying settings...')" -ForegroundColor Cyan
-                            Disable-NetAdapter -Name $iface -Confirm:$false
-                            Start-Sleep 1
-                            Enable-NetAdapter -Name $iface -Confirm:$false
-                            Clear-Host
-                            Write-Host "`n$(L 'Success!')" -ForegroundColor Green
-                            Wait-Back
+                            try {
+                                Disable-NetAdapter -Name $iface -Confirm:$false
+                                Start-Sleep 1
+                                Enable-NetAdapter -Name $iface -Confirm:$false
+                                Show-Message @('Applying settings...', 'Success!') @('Cyan', 'Green')
+                            } catch { Show-Message @('Error applying settings.') @('Red') }
                         }
                     }
                 }
@@ -1087,9 +1256,6 @@ function Main-Menu {
 }
 
 try { Main-Menu } catch {
-    Clear-Host
-    Write-Host "`n[КРИТИЧЕСКАЯ ОШИБКА / CRITICAL ERROR]" -ForegroundColor White -BackgroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Wait-Back
+    Show-Message @("[КРИТИЧЕСКАЯ ОШИБКА / CRITICAL ERROR]", $_.Exception.Message) @("Red", "Red")
 }
 try { [Console]::CursorVisible = $true } catch {}
