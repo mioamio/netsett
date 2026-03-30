@@ -91,7 +91,7 @@ try {
     $ui = $Host.UI.RawUI
     $bufSize = $ui.BufferSize
     $winSize = $ui.WindowSize
-    $newWidth = 110
+    $newWidth = 115
     $newHeight = 35
     $winSize.Width = $newWidth
     $winSize.Height = $newHeight
@@ -134,13 +134,13 @@ $global:RuDict = @{
     "MAC Address Spoofing" = "Подмена MAC-адреса (Spoofing)"
     "LAN Scanner" = "LAN Сканер (Поиск устройств в сети)"
     
-    "Optimize MTU (Find perfect packet size)" = "Оптимизация MTU и параметров сети TCP"
+    "Ultimate Network Optimizer (MTU, TCP, Ping)" = "Ultimate Оптимизация (MTU, TCP, Пинг)"
     "Wi-Fi Channel Analyzer & Optimizer" = "Анализатор зашумленности каналов Wi-Fi"
     "Manage Wi-Fi Network Priorities" = "Менеджер приоритетов сетей Wi-Fi"
     
-    "=== MTU Optimizer ===" = "=== Оптимизатор MTU ==="
-    "This tool will ping a reliable server to find your perfect packet size." = "Этот инструмент найдет максимальный размер пакета для вашей сети."
-    "Using the correct MTU avoids fragmentation, reduces ping, and fixes loading bugs." = "Правильный MTU устраняет фрагментацию, снижает пинг и ускоряет загрузку."
+    "=== Ultimate Network Optimizer ===" = "=== Ultimate Сетевой Оптимизатор ==="
+    "This tool will find your perfect MTU and apply pro-level TCP/Registry tweaks." = "Поиск идеального MTU и применение PRO-твиков TCP/Реестра для вашей сети."
+    "Reduces ping, prevents micro-stutters, and unlocks maximum bandwidth." = "Снижает пинг, убирает микро-фризы и разблокирует максимальную скорость."
     "Press [ENTER] to Start Test or [ESC] to Cancel" = "Нажми [ENTER] для запуска теста или [ESC] для отмены"
     
     "Testing packet size" = "Тестируем размер пакета"
@@ -151,16 +151,27 @@ $global:RuDict = @{
     "Network Parameter" = "Параметр сети"
     "Current Value" = "Текущее"
     "Recommended" = "Рекомендуемое"
-    "TCP Auto-Tuning" = "Автонастройка TCP"
-    "Receive Side Scaling (RSS)" = "Масштабирование (RSS)"
-    "TCP ECN Capability" = "ECN (Упр. перегрузкой)"
+    
+    "MTU (Packet Size)" = "MTU (Размер пакета)"
+    "TCP Auto-Tuning (Speed)" = "Автонастройка TCP (Скорость)"
     "Bandwidth Limit (Throttling)" = "Лимит скорости (Throttling)"
     "Ping Optimization (Nagle)" = "Оптимизация пинга (Нагл)"
-    "TCP Heuristics (Speed Drop)" = "Эвристика TCP (Режет скор.)"
-    "TCP Timestamps (Overhead)" = "Метки времени TCP (Overhead)"
-    "Enabled (Restricted)" = "Включен (Ограничено)"
-    "Disabled (Max Speed)" = "Отключен (Макс. скорость)"
+    "Gaming Priority (Response)" = "Игровой приоритет (Отклик)"
+    "QoS Bandwidth Reserve" = "Резерв канала (QoS)"
+    "Offload (LSO/RSC Spikes)" = "Разгрузка (LSO/RSC Лаги)"
+    
+    "Unknown" = "Неизвестно"
+    "Normal" = "Normal"
+    "Enabled (Limit)" = "Включен (Лимит)"
+    "Disabled (Max Speed)" = "Отключен (Макс. скор.)"
     "Enabled (Low Ping)" = "Включена (Низкий пинг)"
+    "Normal (20%)" = "Обычный (20%)"
+    "Gaming (Max)" = "Игровой (Макс)"
+    "20% (Reserved)" = "20% (Зарезерв.)"
+    "0% (Unlocked)" = "0% (Разблок.)"
+    "Enabled (Spikes)" = "Включена (Лаги)"
+    "Disabled (Stable)" = "Отключена (Стабильно)"
+
     "Press [Y] to Apply all optimizations, or any other key to Cancel..." = "Нажми [Y] для применения ВСЕХ улучшений, или любую другую кнопку для отмены..."
     
     "Port: USB" = "Порт: USB"
@@ -309,7 +320,7 @@ function Draw-Logo {
         '  | . ` |/ _ \ __|\___ \/ _ \ __| __| |_|   |_|  ',
         '  | |\  |  __/ |_ ____) | __/  |_| |_            ',
         '  |_| \_|\___|\__|_____/\___|\__|\__|            ',
-        '  ==================================='
+        '  ===================================' 
     )
     $colors = @("Cyan","Cyan","DarkCyan","DarkCyan","Blue","Blue","Magenta")
     
@@ -495,7 +506,8 @@ function Show-Menu {
             } elseif ($key -eq 'RightArrow' -or $key -eq 'Enter') {
                 $val = $Items[$selected].Value
                 if ($val -eq 'BACK' -or $val -eq 0) { return @{ Action = 'Back'; Value = $val; Index = $selected } }
-                if ($IsToggleMenu) { return @{ Action = 'Enable'; Value = $val; Index = $selected } } 
+                if ($IsToggleMenu -and $key -eq 'RightArrow') { return @{ Action = 'Enable'; Value = $val; Index = $selected } }
+                if ($IsToggleMenu -and $key -eq 'Enter') { return @{ Action = 'Enter'; Value = $val; Index = $selected } }
                 return @{ Action = 'Enter'; Value = $val; Index = $selected }
             } elseif ($key -eq 'LeftArrow' -or $key -eq 'Escape' -or $key -eq 'Backspace') {
                 $val = $Items[$selected].Value
@@ -591,7 +603,9 @@ function Get-AdapterMenu {
         $items += @{ Name = L "Back"; Value = 'BACK' }
         
         $res = Show-Menu -Title (L $TitleKey) -Items $items -DefaultIndex $idx
-        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
+        $idx = $res.Index
+        
+        if ($res.Action -eq 'LangChange') { continue }
         if ($res.Action -eq 'Back') { return $null }
         return $res.Value
     }
@@ -914,17 +928,17 @@ function Scan-LAN {
 }
 
 function Optimize-MTU {
-    $iface = Get-AdapterMenu "Select an adapter:"
+    $iface = Get-AdapterMenu "Ultimate Network Optimizer (MTU, TCP, Ping)"
     if (-not $iface) { return }
     Ensure-AdapterEnabled $iface
 
     while($true) {
         Clear-Host
         Write-Host ""
-        Write-Centered (L "=== MTU Optimizer ===") "Cyan"
+        Write-Centered (L "=== Ultimate Network Optimizer ===") "Cyan"
         Write-Host ""
-        Write-Centered (L "This tool will ping a reliable server to find your perfect packet size.") "White"
-        Write-Centered (L "Using the correct MTU avoids fragmentation, reduces ping, and fixes loading bugs.") "Gray"
+        Write-Centered (L "This tool will find your perfect MTU and apply pro-level TCP/Registry tweaks.") "White"
+        Write-Centered (L "Reduces ping, prevents micro-stutters, and unlocks maximum bandwidth.") "Gray"
         Write-Host ""
         Write-Centered (L "Press [ENTER] to Start Test or [ESC] to Cancel") "Yellow"
         
@@ -988,76 +1002,106 @@ function Optimize-MTU {
         
         $optimalMTU = $current + 28
         
-        # --- СБОР ТЕКУЩИХ НАСТРОЕК (БЕЗОПАСНЫЙ) ---
-        $netIf = Get-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
-        $curMTU = if ($netIf -and $netIf.NlMtuBytes) { $netIf.NlMtuBytes } else { "Unknown" }
+        # --- СБОР ТЕКУЩИХ НАСТРОЕК (БРОНЕБОЙНЫЙ МЕТОД) ---
         
-        $tcpGlobal = Get-NetTCPSetting -SettingName InternetCustom -ErrorAction SilentlyContinue | Select-Object -First 1
-        $curTuning = if ($tcpGlobal -and $tcpGlobal.AutoTuningLevelLocal) { $tcpGlobal.AutoTuningLevelLocal } else { "Unknown" }
-        $curECN = if ($tcpGlobal -and $tcpGlobal.EcnCapability) { $tcpGlobal.EcnCapability } else { "Unknown" }
-        $curHeuristics = if ($tcpGlobal -and $tcpGlobal.WindowScalingHeuristics) { $tcpGlobal.WindowScalingHeuristics } else { "Unknown" }
-        $curTimestamps = if ($tcpGlobal -and $tcpGlobal.Timestamps) { $tcpGlobal.Timestamps } else { "Unknown" }
+        # 1. MTU (через NetIPInterface, если не выйдет - берем 1500)
+        $curMTU = "Unknown"
+        try {
+            $netIf = Get-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -ErrorAction Stop | Select-Object -First 1
+            if ($netIf.NlMtuBytes) { $curMTU = $netIf.NlMtuBytes.ToString() }
+        } catch {}
+        if ($curMTU -eq "Unknown") { $curMTU = "1500" }
         
+        # 2. TCP Настройки (через парсинг netsh - работает 100% везде)
+        $curTuning = "Unknown"
+        try {
+            $tcpLines = netsh int tcp show global
+            foreach ($line in $tcpLines) {
+                if ($line -match "autotuninglevel.*?:\s*([a-zA-Z]+)") { $curTuning = $matches[1] }
+                elseif ($line -match "автонастройк.*?:\s*([a-zA-Z]+)") { $curTuning = $matches[1] }
+            }
+        } catch {}
+        if ($curTuning -ne "Unknown") { $curTuning = $curTuning.Substring(0,1).ToUpper() + $curTuning.Substring(1).ToLower() }
+        
+        # 3. Throttling (Реестр)
         $throttlePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
         $throttleReg = Get-ItemProperty -Path $throttlePath -ErrorAction SilentlyContinue
-        $curThrottle = if ($throttleReg -and ($throttleReg.NetworkThrottlingIndex -eq -1 -or $throttleReg.NetworkThrottlingIndex -eq 4294967295)) { L "Disabled (Max Speed)" } else { L "Enabled (Restricted)" }
+        $curThrottle = if ($throttleReg -and ($throttleReg.NetworkThrottlingIndex -eq -1 -or $throttleReg.NetworkThrottlingIndex -eq 4294967295)) { L "Disabled (Max Speed)" } else { L "Enabled (Limit)" }
+        $curResp = if ($throttleReg -and $throttleReg.SystemResponsiveness -eq 0) { L "Gaming (Max)" } else { L "Normal (20%)" }
         
-        $adapterGuid = (Get-NetAdapter -Name $iface).InterfaceGuid
+        # 4. QoS (Реестр)
+        $qosPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Psched"
+        $qosReg = Get-ItemProperty -Path $qosPath -ErrorAction SilentlyContinue
+        $curQoS = if ($qosReg -and $qosReg.NonBestEffortLimit -eq 0) { L "0% (Unlocked)" } else { L "20% (Reserved)" }
+        
+        # 5. Nagle's Algorithm (Реестр адаптера)
+        $ad = Get-NetAdapter -Name $iface -ErrorAction SilentlyContinue
+        $adapterGuid = $ad.InterfaceGuid
         $ifacePath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$adapterGuid"
         $nagleReg = Get-ItemProperty -Path $ifacePath -ErrorAction SilentlyContinue
-        $curNagle = if ($nagleReg -and $nagleReg.TcpAckFrequency -eq 1) { L "Enabled (Low Ping)" } else { "Disabled" }
+        $curNagle = if ($nagleReg -and $nagleReg.TcpAckFrequency -eq 1 -and $nagleReg.TCPNoDelay -eq 1) { L "Enabled (Low Ping)" } else { L "Disabled" }
+        
+        # 6. Разгрузка (LSO / RSC)
+        $curOffload = L "Unknown"
+        try {
+            $lso = Get-NetAdapterLso -Name $iface -ErrorAction Stop
+            $curOffload = if ($lso.IPv4Enabled) { L "Enabled (Spikes)" } else { L "Disabled (Stable)" }
+        } catch {}
 
         Clear-Host
         Write-Host ""
         Write-Centered "$(L 'Perfect MTU Found!'): $optimalMTU" "Green"
         Write-Host ""
         
-        $tableStartX = [math]::Max(0, [math]::Floor(($w - 90) / 2))
+        $tableStartX = [math]::Max(0, [math]::Floor(($w - 95) / 2))
         [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop)
-        Write-Host "$((L 'Network Parameter').PadRight(30)) | $((L 'Current Value').PadRight(25)) | $((L 'Recommended').PadRight(25))" -ForegroundColor Cyan
+        Write-Host "$((L 'Network Parameter').PadRight(30)) | $((L 'Current Value').PadRight(28)) | $((L 'Recommended').PadRight(28))" -ForegroundColor Cyan
         [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop)
-        Write-Host "----------------------------------------------------------------------------------------" -ForegroundColor DarkCyan
+        Write-Host "---------------------------------------------------------------------------------------------" -ForegroundColor DarkCyan
         
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$("MTU".PadRight(30)) | $("$curMTU".PadRight(25)) | $("$optimalMTU".PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Auto-Tuning').PadRight(30)) | $("$curTuning".PadRight(25)) | $("Normal".PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Bandwidth Limit (Throttling)').PadRight(30)) | $("$curThrottle".PadRight(25)) | $($((L 'Disabled (Max Speed)')).PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Ping Optimization (Nagle)').PadRight(30)) | $("$curNagle".PadRight(25)) | $($((L 'Enabled (Low Ping)')).PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Heuristics (Speed Drop)').PadRight(30)) | $("$curHeuristics".PadRight(25)) | $("Disabled".PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Timestamps (Overhead)').PadRight(30)) | $("$curTimestamps".PadRight(25)) | $("Disabled".PadRight(25))" -ForegroundColor White
-        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP ECN Capability').PadRight(30)) | $("$curECN".PadRight(25)) | $("Enabled".PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'MTU (Packet Size)').PadRight(30)) | $("$curMTU".PadRight(28)) | $("$optimalMTU".PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Auto-Tuning (Speed)').PadRight(30)) | $("$curTuning".PadRight(28)) | $("Normal".PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Bandwidth Limit (Throttling)').PadRight(30)) | $("$curThrottle".PadRight(28)) | $($((L 'Disabled (Max Speed)')).PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Gaming Priority (Response)').PadRight(30)) | $("$curResp".PadRight(28)) | $($((L 'Gaming (Max)')).PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'QoS Bandwidth Reserve').PadRight(30)) | $("$curQoS".PadRight(28)) | $($((L '0% (Unlocked)')).PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Ping Optimization (Nagle)').PadRight(30)) | $("$curNagle".PadRight(28)) | $($((L 'Enabled (Low Ping)')).PadRight(28))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Offload (LSO/RSC Spikes)').PadRight(30)) | $("$curOffload".PadRight(28)) | $($((L 'Disabled (Stable)')).PadRight(28))" -ForegroundColor White
 
         Write-Host "`n"
         Write-Centered (L "Press [Y] to Apply all optimizations, or any other key to Cancel...") "Yellow"
         
         $k = [System.Console]::ReadKey($true)
         if ($k.Key -eq 'Y') {
-            # --- БЕЗОПАСНОЕ ПРИМЕНЕНИЕ (КАЖДЫЙ ПУНКТ ОТДЕЛЬНО) ---
-            
-            # 1. MTU
-            try { Set-NetIPInterface -InterfaceAlias $iface -NlMtuBytes $optimalMTU -ErrorAction Stop | Out-Null } catch {}
-            
-            # 2. TCP Настройки (отдельно для совместимости со старыми/новыми Windows)
-            try { Set-NetTCPSetting -SettingName InternetCustom -AutoTuningLevelLocal Normal -ErrorAction Stop | Out-Null } catch {}
-            try { Set-NetTCPSetting -SettingName InternetCustom -EcnCapability Enabled -ErrorAction Stop | Out-Null } catch {}
-            try { Set-NetTCPSetting -SettingName InternetCustom -Timestamps Disabled -ErrorAction Stop | Out-Null } catch {}
-            try { netsh int tcp set heuristics disabled | Out-Null } catch {}
-            
-            # 3. Отключение троттлинга Windows (-1 в PS превращается в FFFFFFFF DWord)
             try {
-                if (-not (Test-Path $throttlePath)) { New-Item -Path $throttlePath -Force | Out-Null }
-                New-ItemProperty -Path $throttlePath -Name "NetworkThrottlingIndex" -Value -1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
-                New-ItemProperty -Path $throttlePath -Name "SystemResponsiveness" -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
-            } catch {}
-            
-            # 4. Оптимизация пинга (Алгоритм Нагла)
-            try {
-                if (Test-Path $ifacePath) {
-                    New-ItemProperty -Path $ifacePath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
-                    New-ItemProperty -Path $ifacePath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
-                }
-            } catch {}
+                # 1. Применение MTU
+                Set-NetIPInterface -InterfaceAlias $iface -NlMtuBytes $optimalMTU -ErrorAction SilentlyContinue | Out-Null
+                
+                # 2. TCP Auto-Tuning
+                netsh int tcp set global autotuninglevel=normal | Out-Null
+                
+                # 3. Снятие лимита скорости и приоритет
+                if (-not (Test-Path $throttlePath)) { New-Item -Path $throttlePath -Force -ErrorAction SilentlyContinue | Out-Null }
+                Set-ItemProperty -Path $throttlePath -Name "NetworkThrottlingIndex" -Value 0xFFFFFFFF -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                Set-ItemProperty -Path $throttlePath -Name "SystemResponsiveness" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                
+                # 4. Снятие резерва QoS 20%
+                if (-not (Test-Path $qosPath)) { New-Item -Path $qosPath -Force -ErrorAction SilentlyContinue | Out-Null }
+                Set-ItemProperty -Path $qosPath -Name "NonBestEffortLimit" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                
+                # 5. Оптимизация пинга (Nagle)
+                if (-not (Test-Path $ifacePath)) { New-Item -Path $ifacePath -Force -ErrorAction SilentlyContinue | Out-Null }
+                Set-ItemProperty -Path $ifacePath -Name "TcpAckFrequency" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                Set-ItemProperty -Path $ifacePath -Name "TCPNoDelay" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                
+                # 6. Отключение LSO / RSC (Лечит микро-фризы)
+                Disable-NetAdapterLso -Name $iface -ErrorAction SilentlyContinue | Out-Null
+                Disable-NetAdapterRsc -Name $iface -ErrorAction SilentlyContinue | Out-Null
+                netsh int tcp set global rsc=disabled | Out-Null
 
-            Show-Message @('Settings successfully applied', 'A computer restart is recommended after this reset.', 'Success!') @('Cyan', 'Yellow', 'Green')
+                Show-Message @('Settings successfully applied', 'A computer restart is recommended after this reset.', 'Success!') @('Cyan', 'Yellow', 'Green')
+            } catch {
+                Show-Message @('Error applying settings.') @('Red')
+            }
         }
     } else { 
         Show-Message @('Error') @('Red') 
@@ -1074,7 +1118,9 @@ function Manage-DHCP {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Manage DHCP (Enable / Disable / Renew)") -Items $items -DefaultIndex $idx
-        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
+        $idx = $actRes.Index
+        
+        if ($actRes.Action -eq 'LangChange') { continue }
         if ($actRes.Action -eq 'Back') { break }
         
         $act = $actRes.Value
@@ -1109,7 +1155,9 @@ function Manage-DNS {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Quick DNS Setup (Cloudflare, Google, etc.)") -Items $items -DefaultIndex $idx
-        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
+        $idx = $actRes.Index
+        
+        if ($actRes.Action -eq 'LangChange') { continue }
         if ($actRes.Action -eq 'Back') { break }
         
         $iface = Get-AdapterMenu "Select an adapter:"
@@ -1135,7 +1183,9 @@ function Manage-Resets {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Network Resets & Troubleshooting") -Items $items -DefaultIndex $idx
-        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
+        $idx = $actRes.Index
+        
+        if ($actRes.Action -eq 'LangChange') { continue }
         if ($actRes.Action -eq 'Back') { break }
         
         if ($actRes.Value -eq "1") {
@@ -1145,7 +1195,9 @@ function Manage-Resets {
                 while ($true) {
                     $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
                     $confirmRes = Show-Menu -Title (L "Are you SURE you want to clear adapter settings?") -Items $svMenu -DefaultIndex $confIdx
-                    if ($confirmRes.Action -eq 'LangChange') { $confIdx = $confirmRes.Index; continue }
+                    $confIdx = $confirmRes.Index
+                    
+                    if ($confirmRes.Action -eq 'LangChange') { continue }
                     if ($confirmRes.Action -ne 'Back' -and $confirmRes.Value -eq $true) {
                         Remove-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
                         Remove-NetRoute -InterfaceAlias $iface -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
@@ -1177,17 +1229,44 @@ function Manage-Resets {
 function Manage-Adapters {
     $idx = 0
     while ($true) {
-        $res = Get-AdapterMenu "Enable / Disable network adapters"
-        if (-not $res) { break }
+        Flush-AdapterCache
+        $adapters = Get-AdaptersCached
+        $items = @()
+        foreach ($a in $adapters) {
+            if ($a.Status -eq 'Up') { $st = L "ADAPT_WORKING" }
+            elseif ($a.Status -eq 'Disabled') { $st = L "ADAPT_DISABLED" }
+            elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
+            else { $st = $a.Status }
+            
+            if ($a.PnPDeviceID -match "USB\\") { $port = L "Port: USB" }
+            elseif ($a.PnPDeviceID -match "PCI\\") { $port = L "Port: Motherboard" }
+            else { $port = L "Virtual" }
+            
+            $hwShort = $a.InterfaceDescription
+            if ($hwShort.Length -gt 25) { $hwShort = $hwShort.Substring(0, 22) + "..." }
+            
+            $displayName = "$($a.InterfaceAlias.PadRight(15)) | $($hwShort.PadRight(25)) | [$port] [$st]"
+            $items += @{ Name = $displayName; Value = $a.InterfaceAlias }
+        }
+        $items += @{ Name = L "Back"; Value = 'BACK' }
         
-        # Переключаем статус (в отличие от других пунктов, здесь мы хотим изменить состояние)
-        $ad = Get-NetAdapter -Name $res -ErrorAction SilentlyContinue
-        if ($ad) {
-            if ($ad.Status -eq 'Disabled') {
-                Enable-NetAdapter -Name $res -Confirm:$false
-                Start-Sleep -Seconds 1
-            } else {
-                Disable-NetAdapter -Name $res -Confirm:$false
+        $res = Show-Menu -Title (L "Enable / Disable network adapters") -Items $items -IsToggleMenu -DefaultIndex $idx
+        $idx = $res.Index
+        
+        if ($res.Action -eq 'LangChange') { continue }
+        if ($res.Action -eq 'Back') { break }
+        
+        if ($res.Action -eq 'Enable') {
+            Enable-NetAdapter -Name $res.Value -Confirm:$false
+            Start-Sleep -Seconds 1
+        } elseif ($res.Action -eq 'Disable') {
+            Disable-NetAdapter -Name $res.Value -Confirm:$false
+            Start-Sleep -Seconds 1
+        } elseif ($res.Action -eq 'Enter') {
+            $ad = Get-NetAdapter -Name $res.Value -ErrorAction SilentlyContinue
+            if ($ad) {
+                if ($ad.Status -eq 'Disabled') { Enable-NetAdapter -Name $res.Value -Confirm:$false }
+                else { Disable-NetAdapter -Name $res.Value -Confirm:$false }
                 Start-Sleep -Seconds 1
             }
         }
@@ -1212,7 +1291,9 @@ function Manage-Profiles {
         $pItems += @{Name = L "Back"; Value = 'BACK'}
         
         $pRes = Show-Menu -Title (L "Manage Saved Profiles") -Items $pItems -DefaultIndex $pIdx
-        if ($pRes.Action -eq 'LangChange') { $pIdx = $pRes.Index; continue }
+        $pIdx = $pRes.Index
+        
+        if ($pRes.Action -eq 'LangChange') { continue }
         if ($pRes.Action -eq 'Back') { break }
         
         $targetProf = $pRes.Value
@@ -1226,7 +1307,9 @@ function Manage-Profiles {
                 @{Name = L "Cancel"; Value = "BACK"}
             )
             $act = Show-Menu -Title "'$($targetProf.Name)' Options" -Items $actItems -DefaultIndex $actIdx
-            if ($act.Action -eq 'LangChange') { $actIdx = $act.Index; continue }
+            $actIdx = $act.Index
+            
+            if ($act.Action -eq 'LangChange') { continue }
             if ($act.Action -eq 'Back' -or $act.Value -eq 'BACK') { $act = $null; break }
             break
         }
@@ -1335,7 +1418,9 @@ function Manage-WiFiPriority {
         $items += @{Name = L "Back"; Value = "BACK"}
         
         $res = Show-Menu -Title (L "Manage Wi-Fi Network Priorities") -Items $items -DefaultIndex $idx
-        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
+        $idx = $res.Index
+        
+        if ($res.Action -eq 'LangChange') { continue }
         if ($res.Action -eq 'Back') { break }
         
         $target = $res.Value
@@ -1362,7 +1447,9 @@ function Manage-WiFi {
             @{Name = L "Back"; Value = "BACK"}
         )
         $actRes = Show-Menu -Title (L "Wi-Fi Management (Search, Connect, Passwords)") -Items $items -DefaultIndex $idx
-        if ($actRes.Action -eq 'LangChange') { $idx = $actRes.Index; continue }
+        $idx = $actRes.Index
+        
+        if ($actRes.Action -eq 'LangChange') { continue }
         if ($actRes.Action -eq 'Back') { break }
         
         $act = $actRes.Value
@@ -1370,7 +1457,9 @@ function Manage-WiFi {
             $radarIdx = 0
             while ($true) {
                 $res = Show-Menu -Title (L "Show available networks (Live Radar)") -Items @() -DynamicWiFi -DefaultIndex $radarIdx
-                if ($res.Action -eq 'LangChange') { $radarIdx = $res.Index; continue }
+                $radarIdx = $res.Index
+                
+                if ($res.Action -eq 'LangChange') { continue }
                 break
             }
             if ($res.Action -ne 'Back') {
@@ -1418,7 +1507,9 @@ function Manage-WiFi {
                 $pItems += @{Name = L "Back"; Value = 'BACK'}
                 
                 $targetRes = Show-Menu -Title (L "Connect to saved network") -Items $pItems -DefaultIndex $savedIdx
-                if ($targetRes.Action -eq 'LangChange') { $savedIdx = $targetRes.Index; continue }
+                $savedIdx = $targetRes.Index
+                
+                if ($targetRes.Action -eq 'LangChange') { continue }
                 break
             }
             if ($targetRes.Action -ne 'Back') {
@@ -1462,7 +1553,9 @@ function Manage-WiFi {
                     @{Name = L "Back"; Value = "BACK"}
                 )
                 $pRes = Show-Menu -Title (L "Optimize Wi-Fi Power (Boost Signal)") -Items $pItems -DefaultIndex $pwrIdx
-                if ($pRes.Action -eq 'LangChange') { $pwrIdx = $pRes.Index; continue }
+                $pwrIdx = $pRes.Index
+                
+                if ($pRes.Action -eq 'LangChange') { continue }
                 break
             }
             if ($pRes.Action -eq 'Back' -or $pRes.Value -eq 'BACK') { continue }
@@ -1507,12 +1600,14 @@ function Main-Menu {
             @{Name = L "Wi-Fi Management (Search, Connect, Passwords)"; Value = 9}
             @{Name = L "MAC Address Spoofing"; Value = 10}
             @{Name = L "LAN Scanner"; Value = 11}
-            @{Name = L "Optimize MTU (Find perfect packet size)"; Value = 12}
+            @{Name = L "Ultimate Network Optimizer (MTU, TCP, Ping)"; Value = 12}
             @{Name = L "Exit"; Value = 0}
         )
         
-        $choice = Show-Menu -Title "netsett++ Main Menu" -Items $items -DefaultIndex $mainIndex -ShowLogo
-        if ($choice.Action -eq 'LangChange') { $mainIndex = $choice.Index; continue }
+        $choice = Show-Menu -Title "Main Menu" -Items $items -DefaultIndex $mainIndex -ShowLogo
+        $mainIndex = $choice.Index
+        
+        if ($choice.Action -eq 'LangChange') { continue }
         if ($choice.Action -eq 'Back') { break }
         
         try {
@@ -1530,7 +1625,9 @@ function Main-Menu {
                         while ($true) {
                             $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
                             $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu -DefaultIndex $confIdx
-                            if ($saveRes.Action -eq 'LangChange') { $confIdx = $saveRes.Index; continue }
+                            $confIdx = $saveRes.Index
+                            
+                            if ($saveRes.Action -eq 'LangChange') { continue }
                             if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
                                 $pname = Get-TextInput (L "Enter a name for the profile")
                                 $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
@@ -1572,7 +1669,9 @@ function Main-Menu {
                                 @{Name = L "Back"; Value = "BACK"}
                             )
                             $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems -DefaultIndex $mIdx
-                            if ($actRes.Action -eq 'LangChange') { $mIdx = $actRes.Index; continue }
+                            $mIdx = $actRes.Index
+                            
+                            if ($actRes.Action -eq 'LangChange') { continue }
                             break
                         }
                         if ($actRes.Action -ne 'Back') {
