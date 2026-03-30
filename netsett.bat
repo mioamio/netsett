@@ -1,7 +1,7 @@
 <# : 2>nul
 @echo off
 chcp 65001 >nul
-title netsett++ (Dev Mode)
+title netsett++
 
 cd /d "%~dp0"
 set "BAT_FILE_PATH=%~f0"
@@ -134,7 +134,7 @@ $global:RuDict = @{
     "MAC Address Spoofing" = "Подмена MAC-адреса (Spoofing)"
     "LAN Scanner" = "LAN Сканер (Поиск устройств в сети)"
     
-    "Optimize MTU (Find perfect packet size)" = "Оптимизация MTU (Поиск идеального пакета)"
+    "Optimize MTU (Find perfect packet size)" = "Оптимизация MTU и параметров сети TCP"
     "Wi-Fi Channel Analyzer & Optimizer" = "Анализатор зашумленности каналов Wi-Fi"
     "Manage Wi-Fi Network Priorities" = "Менеджер приоритетов сетей Wi-Fi"
     
@@ -147,7 +147,26 @@ $global:RuDict = @{
     "Fragmented. Lowering size..." = "Фрагментирован. Уменьшаем размер..."
     "Success. Refining..." = "Успешно. Уточняем..."
     "Perfect MTU Found!" = "Идеальный MTU найден!"
-    "Press [Y] to Apply, or any other key to Cancel..." = "Нажми [Y] для применения, или любую другую кнопку для отмены..."
+    
+    "Network Parameter" = "Параметр сети"
+    "Current Value" = "Текущее"
+    "Recommended" = "Рекомендуемое"
+    "TCP Auto-Tuning" = "Автонастройка TCP"
+    "Receive Side Scaling (RSS)" = "Масштабирование (RSS)"
+    "TCP ECN Capability" = "ECN (Упр. перегрузкой)"
+    "Bandwidth Limit (Throttling)" = "Лимит скорости (Throttling)"
+    "Ping Optimization (Nagle)" = "Оптимизация пинга (Нагл)"
+    "TCP Heuristics (Speed Drop)" = "Эвристика TCP (Режет скор.)"
+    "TCP Timestamps (Overhead)" = "Метки времени TCP (Overhead)"
+    "Enabled (Restricted)" = "Включен (Ограничено)"
+    "Disabled (Max Speed)" = "Отключен (Макс. скорость)"
+    "Enabled (Low Ping)" = "Включена (Низкий пинг)"
+    "Press [Y] to Apply all optimizations, or any other key to Cancel..." = "Нажми [Y] для применения ВСЕХ улучшений, или любую другую кнопку для отмены..."
+    
+    "Port: USB" = "Порт: USB"
+    "Port: Motherboard" = "Порт: Мат. плата"
+    "Virtual" = "Виртуальный"
+    
     "Applying optimal settings to Wi-Fi adapter..." = "Применяем оптимальные настройки к Wi-Fi адаптеру..."
     "Move this network to TOP Priority?" = "Поднять эту сеть на 1-е место (Высший приоритет)?"
     "Network moved to priority 1." = "Сеть перемещена на 1-е место."
@@ -182,13 +201,13 @@ $global:RuDict = @{
     "Enter a name for the profile" = "Придумай название для профиля"
     "Settings successfully applied" = "Настройки успешно применены"
     "Error applying settings." = "Ошибка применения настроек."
+    "A computer restart is recommended after this reset." = "Рекомендуется перезагрузить компьютер."
     
     "Clear adapter IP/Routing settings" = "Полная очистка IP и маршрутов адаптера"
     "Full Windows Network Reset (Winsock & Flush DNS)" = "Глубокий сброс стека сети Windows (Winsock / DNS)"
     "Are you SURE you want to clear adapter settings?" = "УВЕРЕН, что хочешь удалить настройки адаптера?"
     "Adapter settings cleared successfully" = "Адаптер полностью очищен"
     "Resetting Windows network stack..." = "Сброс сетевого стека Windows..."
-    "A computer restart is recommended after this reset." = "Рекомендуется перезагрузить компьютер."
     
     "Enable DHCP" = "Включить DHCP"
     "Disable DHCP" = "Отключить DHCP"
@@ -546,6 +565,7 @@ function Get-AdapterMenu {
     param([string]$TitleKey)
     $idx = 0
     while ($true) {
+        Flush-AdapterCache
         $adapters = Get-AdaptersCached
         if ($adapters.Count -eq 0) { 
             Show-Message @("No network adapters found in the system") @("Red")
@@ -558,7 +578,15 @@ function Get-AdapterMenu {
             elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
             else { $st = $a.Status }
             
-            $items += @{ Name = "$($a.InterfaceAlias) [$st]"; Value = $a.InterfaceAlias }
+            if ($a.PnPDeviceID -match "USB\\") { $port = L "Port: USB" }
+            elseif ($a.PnPDeviceID -match "PCI\\") { $port = L "Port: Motherboard" }
+            else { $port = L "Virtual" }
+            
+            $hwShort = $a.InterfaceDescription
+            if ($hwShort.Length -gt 25) { $hwShort = $hwShort.Substring(0, 22) + "..." }
+            
+            $displayName = "$($a.InterfaceAlias.PadRight(15)) | $($hwShort.PadRight(25)) | [$port] [$st]"
+            $items += @{ Name = $displayName; Value = $a.InterfaceAlias }
         }
         $items += @{ Name = L "Back"; Value = 'BACK' }
         
@@ -583,82 +611,107 @@ function Ensure-AdapterEnabled {
 
 function Show-Status {
     $blockW = 85
+    Clear-Host 
+    
     while ($true) {
-        Clear-Host
         [Console]::SetCursorPosition(0, 0)
-        Write-Host ""
-        Write-Centered (L "=== Active Local Adapters (This PC) ===") "Cyan"
-        Write-Centered "--------------------------------------------------------" "DarkCyan"
-        Write-Host ""
+        
+        Reset-Line; Write-Host ""
+        Reset-Line; Write-Centered (L "=== Active Local Adapters (This PC) ===") "Cyan"
+        Reset-Line; Write-Centered "--------------------------------------------------------" "DarkCyan"
+        Reset-Line; Write-Host ""
         
         $w = $Host.UI.WindowSize.Width
         if ($w -lt 20) { $w = 110 }
         $startX = [math]::Max(0, [math]::Floor(($w - $blockW) / 2))
 
         $found = $false
-        $adapters = Get-AdaptersCached
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -notlike '*Loopback*' }
         
-        foreach ($ad in $adapters) {
-            if ($ad.Status -eq 'Up') {
-                $ipObj = Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($ipObj) {
-                    $found = $true
-                    $dhcpInfo = Get-NetIPInterface -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
-                    $dhcpStr = if ($dhcpInfo.Dhcp -eq 'Enabled') { L "Automatic (DHCP)" } else { L "Manual (Static)" }
-                    
-                    $route = Get-NetRoute -InterfaceIndex $ad.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
-                    $gw = if ($route) { $route.NextHop } else { $null }
+        if ($adapters) {
+            foreach ($ad in $adapters) {
+                if ($ad.Status -eq 'Up') {
+                    $ipObj = Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($ipObj) {
+                        $found = $true
+                        $dhcpInfo = Get-NetIPInterface -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+                        $dhcpStr = if ($dhcpInfo -and $dhcpInfo.Dhcp -eq 'Enabled') { L "Automatic (DHCP)" } else { L "Manual (Static)" }
+                        
+                        $route = Get-NetRoute -InterfaceIndex $ad.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        $gw = if ($route) { $route.NextHop } else { $null }
 
-                    $dnsObj = Get-DnsClientServerAddress -InterfaceIndex $ad.ifIndex -ErrorAction SilentlyContinue
-                    $dns = ($dnsObj.ServerAddresses) -join ", "
-                    if (-not $dns) { $dns = L "None" }
+                        $dnsObj = Get-DnsClientServerAddress -InterfaceIndex $ad.ifIndex -ErrorAction SilentlyContinue
+                        $dns = if ($dnsObj) { ($dnsObj.ServerAddresses) -join ", " } else { "" }
+                        if (-not $dns) { $dns = L "None" }
 
-                    $vendor = Get-VendorByMac $ad.MacAddress
-                    $macDisp = if ($vendor) { "$($ad.MacAddress) [$vendor]" } else { $($ad.MacAddress) }
+                        $vendor = Get-VendorByMac $ad.MacAddress
+                        $macDisp = if ($vendor) { "$($ad.MacAddress) [$vendor]" } else { $($ad.MacAddress) }
 
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network Adapter').PadRight(22)) : $($ad.InterfaceAlias)" -ForegroundColor Cyan
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Hardware').PadRight(22)) : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(22)) : $macDisp" -ForegroundColor DarkGray
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Operating Mode').PadRight(22)) : $dhcpStr" -ForegroundColor Yellow
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Current IP Address').PadRight(22)) : $($ipObj.IPAddress)" -ForegroundColor Green
-                    
-                    if ($gw) { 
-                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $gw" -ForegroundColor Green 
-                    } else { 
-                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $(L 'None')" -ForegroundColor Red 
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Network Adapter').PadRight(22)) : $($ad.InterfaceAlias)" -ForegroundColor Cyan
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Device Hardware').PadRight(22)) : $($ad.InterfaceDescription)" -ForegroundColor DarkGray
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'MAC Address').PadRight(22)) : $macDisp" -ForegroundColor DarkGray
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Operating Mode').PadRight(22)) : $dhcpStr" -ForegroundColor Yellow
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Current IP Address').PadRight(22)) : $($ipObj.IPAddress)" -ForegroundColor Green
+                        
+                        if ($gw) { 
+                            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $gw" -ForegroundColor Green 
+                        } else { 
+                            Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'Default Gateway').PadRight(22)) : $(L 'None')" -ForegroundColor Red 
+                        }
+                        Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'DNS Servers').PadRight(22)) : $dns" -ForegroundColor Magenta
+                        Reset-Line; Write-Host ""
                     }
-                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$((L 'DNS Servers').PadRight(22)) : $dns" -ForegroundColor Magenta
-                    Write-Host ""
                 }
             }
         }
         
-        if (-not $found) { Write-Centered (L "No connected and configured networks found") "Red" }
+        if (-not $found) { Reset-Line; Write-Centered (L "No connected and configured networks found") "Red" }
         
-        Write-Host ""
-        Write-Centered (L "=== Disconnected / Disabled Adapters ===") "Cyan"
-        Write-Centered "--------------------------------------------------------" "DarkCyan"
-        Write-Host ""
+        Reset-Line; Write-Host ""
+        Reset-Line; Write-Centered (L "=== Disconnected / Disabled Adapters ===") "Cyan"
+        Reset-Line; Write-Centered "--------------------------------------------------------" "DarkCyan"
+        Reset-Line; Write-Host ""
         
         $inactiveFound = $false
-        foreach ($a in $adapters) {
-            if ($a.Status -ne 'Up') {
-                $inactiveFound = $true
-                $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
-                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$($a.InterfaceAlias)" -ForegroundColor Gray
-                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Device Hardware').PadRight(20)) : $($a.InterfaceDescription)" -ForegroundColor DarkGray
-                Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Status').PadRight(20)) : $reason" -ForegroundColor Red
-                Write-Host ""
+        if ($adapters) {
+            foreach ($a in $adapters) {
+                if ($a.Status -ne 'Up') {
+                    $inactiveFound = $true
+                    $reason = if ($a.Status -eq 'Disabled') { L "Disabled" } elseif ($a.Status -eq 'Disconnected') { L "Cable disconnected" } else { $a.Status }
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "$($a.InterfaceAlias)" -ForegroundColor Gray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Device Hardware').PadRight(20)) : $($a.InterfaceDescription)" -ForegroundColor DarkGray
+                    Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "  $((L 'Status').PadRight(20)) : $reason" -ForegroundColor Red
+                    Reset-Line; Write-Host ""
+                }
             }
         }
         
         if (-not $inactiveFound) {
-            Write-Centered (L "No disabled adapters found") "DarkGray"
+            Reset-Line; Write-Centered (L "No disabled adapters found") "DarkGray"
         }
 
         Clear-Tail
-        if ((Wait-Back) -eq "LANG_CHANGED") { continue }
-        break
+
+        $breakLoop = $false
+        for ($i = 0; $i -lt 30; $i++) {
+            if ([Console]::KeyAvailable) {
+                $keyInfo = [System.Console]::ReadKey($true)
+                $key = $keyInfo.Key
+                
+                if (($keyInfo.Modifiers -band [ConsoleModifiers]::Control) -and ($key -eq [ConsoleKey]::L)) {
+                    $global:SysLang = if ($global:SysLang -eq 'ru') { 'en' } else { 'ru' }
+                    Set-Content -Path $LangCacheFile -Value $global:SysLang -Encoding UTF8
+                    $breakLoop = "LANG"
+                    break
+                }
+                if ($key -eq 'F5') { [Environment]::Exit(99) }
+                if ($key -match 'LeftArrow|Escape|Enter|RightArrow|Backspace') { $breakLoop = "EXIT"; break }
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        
+        if ($breakLoop -eq "LANG") { Clear-Host; continue }
+        if ($breakLoop -eq "EXIT") { break }
     }
 }
 
@@ -859,6 +912,7 @@ function Scan-LAN {
         if ($breakLoop) { break }
     }
 }
+
 function Optimize-MTU {
     $iface = Get-AdapterMenu "Select an adapter:"
     if (-not $iface) { return }
@@ -933,15 +987,77 @@ function Optimize-MTU {
         }
         
         $optimalMTU = $current + 28
+        
+        # --- СБОР ТЕКУЩИХ НАСТРОЕК (БЕЗОПАСНЫЙ) ---
+        $netIf = Get-NetIPInterface -InterfaceAlias $iface -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+        $curMTU = if ($netIf -and $netIf.NlMtuBytes) { $netIf.NlMtuBytes } else { "Unknown" }
+        
+        $tcpGlobal = Get-NetTCPSetting -SettingName InternetCustom -ErrorAction SilentlyContinue | Select-Object -First 1
+        $curTuning = if ($tcpGlobal -and $tcpGlobal.AutoTuningLevelLocal) { $tcpGlobal.AutoTuningLevelLocal } else { "Unknown" }
+        $curECN = if ($tcpGlobal -and $tcpGlobal.EcnCapability) { $tcpGlobal.EcnCapability } else { "Unknown" }
+        $curHeuristics = if ($tcpGlobal -and $tcpGlobal.WindowScalingHeuristics) { $tcpGlobal.WindowScalingHeuristics } else { "Unknown" }
+        $curTimestamps = if ($tcpGlobal -and $tcpGlobal.Timestamps) { $tcpGlobal.Timestamps } else { "Unknown" }
+        
+        $throttlePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+        $throttleReg = Get-ItemProperty -Path $throttlePath -ErrorAction SilentlyContinue
+        $curThrottle = if ($throttleReg -and ($throttleReg.NetworkThrottlingIndex -eq -1 -or $throttleReg.NetworkThrottlingIndex -eq 4294967295)) { L "Disabled (Max Speed)" } else { L "Enabled (Restricted)" }
+        
+        $adapterGuid = (Get-NetAdapter -Name $iface).InterfaceGuid
+        $ifacePath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$adapterGuid"
+        $nagleReg = Get-ItemProperty -Path $ifacePath -ErrorAction SilentlyContinue
+        $curNagle = if ($nagleReg -and $nagleReg.TcpAckFrequency -eq 1) { L "Enabled (Low Ping)" } else { "Disabled" }
+
+        Clear-Host
         Write-Host ""
         Write-Centered "$(L 'Perfect MTU Found!'): $optimalMTU" "Green"
         Write-Host ""
-        Write-Centered (L "Press [Y] to Apply, or any other key to Cancel...") "Yellow"
+        
+        $tableStartX = [math]::Max(0, [math]::Floor(($w - 90) / 2))
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop)
+        Write-Host "$((L 'Network Parameter').PadRight(30)) | $((L 'Current Value').PadRight(25)) | $((L 'Recommended').PadRight(25))" -ForegroundColor Cyan
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop)
+        Write-Host "----------------------------------------------------------------------------------------" -ForegroundColor DarkCyan
+        
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$("MTU".PadRight(30)) | $("$curMTU".PadRight(25)) | $("$optimalMTU".PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Auto-Tuning').PadRight(30)) | $("$curTuning".PadRight(25)) | $("Normal".PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Bandwidth Limit (Throttling)').PadRight(30)) | $("$curThrottle".PadRight(25)) | $($((L 'Disabled (Max Speed)')).PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'Ping Optimization (Nagle)').PadRight(30)) | $("$curNagle".PadRight(25)) | $($((L 'Enabled (Low Ping)')).PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Heuristics (Speed Drop)').PadRight(30)) | $("$curHeuristics".PadRight(25)) | $("Disabled".PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP Timestamps (Overhead)').PadRight(30)) | $("$curTimestamps".PadRight(25)) | $("Disabled".PadRight(25))" -ForegroundColor White
+        [Console]::SetCursorPosition($tableStartX, [Console]::CursorTop); Write-Host "$((L 'TCP ECN Capability').PadRight(30)) | $("$curECN".PadRight(25)) | $("Enabled".PadRight(25))" -ForegroundColor White
+
+        Write-Host "`n"
+        Write-Centered (L "Press [Y] to Apply all optimizations, or any other key to Cancel...") "Yellow"
         
         $k = [System.Console]::ReadKey($true)
         if ($k.Key -eq 'Y') {
-            Set-NetIPInterface -InterfaceAlias $iface -NlMtuBytes $optimalMTU -ErrorAction SilentlyContinue | Out-Null
-            Show-Message @('Settings successfully applied', 'Success!') @('Cyan', 'Green')
+            # --- БЕЗОПАСНОЕ ПРИМЕНЕНИЕ (КАЖДЫЙ ПУНКТ ОТДЕЛЬНО) ---
+            
+            # 1. MTU
+            try { Set-NetIPInterface -InterfaceAlias $iface -NlMtuBytes $optimalMTU -ErrorAction Stop | Out-Null } catch {}
+            
+            # 2. TCP Настройки (отдельно для совместимости со старыми/новыми Windows)
+            try { Set-NetTCPSetting -SettingName InternetCustom -AutoTuningLevelLocal Normal -ErrorAction Stop | Out-Null } catch {}
+            try { Set-NetTCPSetting -SettingName InternetCustom -EcnCapability Enabled -ErrorAction Stop | Out-Null } catch {}
+            try { Set-NetTCPSetting -SettingName InternetCustom -Timestamps Disabled -ErrorAction Stop | Out-Null } catch {}
+            try { netsh int tcp set heuristics disabled | Out-Null } catch {}
+            
+            # 3. Отключение троттлинга Windows (-1 в PS превращается в FFFFFFFF DWord)
+            try {
+                if (-not (Test-Path $throttlePath)) { New-Item -Path $throttlePath -Force | Out-Null }
+                New-ItemProperty -Path $throttlePath -Name "NetworkThrottlingIndex" -Value -1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+                New-ItemProperty -Path $throttlePath -Name "SystemResponsiveness" -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+            } catch {}
+            
+            # 4. Оптимизация пинга (Алгоритм Нагла)
+            try {
+                if (Test-Path $ifacePath) {
+                    New-ItemProperty -Path $ifacePath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+                    New-ItemProperty -Path $ifacePath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+                }
+            } catch {}
+
+            Show-Message @('Settings successfully applied', 'A computer restart is recommended after this reset.', 'Success!') @('Cyan', 'Yellow', 'Green')
         }
     } else { 
         Show-Message @('Error') @('Red') 
@@ -1061,27 +1177,19 @@ function Manage-Resets {
 function Manage-Adapters {
     $idx = 0
     while ($true) {
-        $adapters = Get-AdaptersCached
-        $items = @()
-        foreach ($a in $adapters) {
-            if ($a.Status -eq 'Up') { $st = L "ADAPT_WORKING" }
-            elseif ($a.Status -eq 'Disabled') { $st = L "ADAPT_DISABLED" }
-            elseif ($a.Status -eq 'Disconnected') { $st = L "ADAPT_NO_CABLE" }
-            else { $st = $a.Status }
-            $items += @{ Name = "$($a.InterfaceAlias) [$st]"; Value = $a.InterfaceAlias }
-        }
-        $items += @{ Name = L "Back"; Value = 'BACK' }
+        $res = Get-AdapterMenu "Enable / Disable network adapters"
+        if (-not $res) { break }
         
-        $res = Show-Menu -Title (L "Enable / Disable network adapters") -Items $items -IsToggleMenu -DefaultIndex $idx
-        if ($res.Action -eq 'LangChange') { $idx = $res.Index; continue }
-        if ($res.Action -eq 'Back') { break }
-        
-        if ($res.Action -eq 'Enable') {
-            Enable-NetAdapter -Name $res.Value -Confirm:$false
-            Flush-AdapterCache
-        } elseif ($res.Action -eq 'Disable') {
-            Disable-NetAdapter -Name $res.Value -Confirm:$false
-            Flush-AdapterCache
+        # Переключаем статус (в отличие от других пунктов, здесь мы хотим изменить состояние)
+        $ad = Get-NetAdapter -Name $res -ErrorAction SilentlyContinue
+        if ($ad) {
+            if ($ad.Status -eq 'Disabled') {
+                Enable-NetAdapter -Name $res -Confirm:$false
+                Start-Sleep -Seconds 1
+            } else {
+                Disable-NetAdapter -Name $res -Confirm:$false
+                Start-Sleep -Seconds 1
+            }
         }
     }
 }
@@ -1407,106 +1515,108 @@ function Main-Menu {
         if ($choice.Action -eq 'LangChange') { $mainIndex = $choice.Index; continue }
         if ($choice.Action -eq 'Back') { break }
         
-        switch ($choice.Value) {
-            1 { Show-Status }
-            2 {
-                $iface = Get-AdapterMenu "Select an adapter:"
-                if ($iface) {
-                    $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
-                    if (-not (Test-IPAddress $ip)) { continue }
-                    $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
-                    $gw = Get-TextInput (L "Enter Gateway IP (Enter to skip)")
-                    
-                    $confIdx = 0
-                    while ($true) {
-                        $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
-                        $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu -DefaultIndex $confIdx
-                        if ($saveRes.Action -eq 'LangChange') { $confIdx = $saveRes.Index; continue }
-                        if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
-                            $pname = Get-TextInput (L "Enter a name for the profile")
-                            $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
-                            $profiles = @()
-                            if (Test-Path $ProfilePath) { $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json }
-                            $profiles += $prof
-                            $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
-                        }
-                        break
-                    }
-                    Set-StaticIP -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -DefaultGateway $gw -Mode 'Replace'
-                }
-            }
-            3 {
-                $iface = Get-AdapterMenu "Select an adapter:"
-                if ($iface) {
-                    $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
-                    if (-not (Test-IPAddress $ip)) { continue }
-                    $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
-                    New-NetIPAddress -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -AddressFamily IPv4 -ErrorAction SilentlyContinue | Out-Null
-                    Show-Message @('Success!') @('Green')
-                }
-            }
-            4 { Manage-DHCP }
-            5 { Manage-DNS }
-            6 { Manage-Resets }
-            7 { Manage-Profiles }
-            8 { Manage-Adapters }
-            9 { Manage-WiFi }
-            10 {
-                $iface = Get-AdapterMenu "Select an adapter:"
-                if ($iface) {
-                    $mIdx = 0
-                    while ($true) {
-                        $mItems = @(
-                            @{Name = L "Enter new MAC manually"; Value = "1"}
-                            @{Name = L "Generate random MAC"; Value = "2"}
-                            @{Name = L "Restore original hardware MAC"; Value = "3"}
-                            @{Name = L "Back"; Value = "BACK"}
-                        )
-                        $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems -DefaultIndex $mIdx
-                        if ($actRes.Action -eq 'LangChange') { $mIdx = $actRes.Index; continue }
-                        break
-                    }
-                    if ($actRes.Action -ne 'Back') {
-                        $act = $actRes.Value
-                        $adapter = Get-NetAdapter -Name $iface
-                        $guid = $adapter.InterfaceGuid
-                        $regBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
-                        $regPath = ""
-                        foreach ($k in Get-ChildItem $regBase) {
-                            $val = Get-ItemProperty $k.PSPath -Name "NetCfgInstanceId" -ErrorAction SilentlyContinue
-                            if ($val.NetCfgInstanceId -eq $guid) { $regPath = $k.PSPath; break }
-                        }
-                        if ($regPath -ne "") {
-                            $newMac = ""
-                            if ($act -eq "1") {
-                                $inputMac = Get-TextInput (L "Enter new MAC (no dashes, e.g. 001122334455)")
-                                if ($inputMac -match '^[0-9A-Fa-f]{12}$') { $newMac = $inputMac } else { continue }
-                            } elseif ($act -eq "2") {
-                                $chars = "0123456789ABCDEF"; $valid = "2","6","A","E"
-                                $newMac = $chars[(Get-Random -Max 16)].ToString() + $valid[(Get-Random -Max 4)]
-                                for ($i=0; $i -lt 10; $i++) { $newMac += $chars[(Get-Random -Max 16)] }
+        try {
+            switch ($choice.Value) {
+                1 { Show-Status }
+                2 {
+                    $iface = Get-AdapterMenu "Change primary IP address"
+                    if ($iface) {
+                        $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
+                        if (-not (Test-IPAddress $ip)) { continue }
+                        $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
+                        $gw = Get-TextInput (L "Enter Gateway IP (Enter to skip)")
+                        
+                        $confIdx = 0
+                        while ($true) {
+                            $svMenu = @( @{Name=L "Yes"; Value=$true}, @{Name=L "No"; Value=$false} )
+                            $saveRes = Show-Menu -Title (L "Save these settings as a profile?") -Items $svMenu -DefaultIndex $confIdx
+                            if ($saveRes.Action -eq 'LangChange') { $confIdx = $saveRes.Index; continue }
+                            if ($saveRes.Action -ne 'Back' -and $saveRes.Value -eq $true) {
+                                $pname = Get-TextInput (L "Enter a name for the profile")
+                                $prof = @{Name=$pname; Interface=$iface; IP=$ip; Mask=$mask; Gateway=$gw}
+                                $profiles = @()
+                                if (Test-Path $ProfilePath) { $profiles = Get-Content $ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json }
+                                $profiles += $prof
+                                $profiles | ConvertTo-Json | Set-Content $ProfilePath -Encoding UTF8
                             }
-                            
-                            if ($act -eq "3") { Remove-ItemProperty -Path $regPath -Name "NetworkAddress" -ErrorAction SilentlyContinue } 
-                            else { Set-ItemProperty -Path $regPath -Name "NetworkAddress" -Value $newMac }
-                            
-                            try {
-                                Disable-NetAdapter -Name $iface -Confirm:$false
-                                Start-Sleep 1
-                                Enable-NetAdapter -Name $iface -Confirm:$false
-                                Show-Message @('Applying settings...', 'Success!') @('Cyan', 'Green')
-                            } catch { Show-Message @('Error applying settings.') @('Red') }
+                            break
+                        }
+                        Set-StaticIP -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -DefaultGateway $gw -Mode 'Replace'
+                    }
+                }
+                3 {
+                    $iface = Get-AdapterMenu "Add secondary IP address"
+                    if ($iface) {
+                        $ip = Get-TextInput (L "Enter IP address (e.g. 192.168.1.50)")
+                        if (-not (Test-IPAddress $ip)) { continue }
+                        $mask = Get-TextInput (L "Enter subnet mask (e.g. 24)")
+                        New-NetIPAddress -InterfaceAlias $iface -IPAddress $ip -PrefixLength $mask -AddressFamily IPv4 -ErrorAction SilentlyContinue | Out-Null
+                        Show-Message @('Success!') @('Green')
+                    }
+                }
+                4 { Manage-DHCP }
+                5 { Manage-DNS }
+                6 { Manage-Resets }
+                7 { Manage-Profiles }
+                8 { Manage-Adapters }
+                9 { Manage-WiFi }
+                10 {
+                    $iface = Get-AdapterMenu "MAC Address Spoofing"
+                    if ($iface) {
+                        $mIdx = 0
+                        while ($true) {
+                            $mItems = @(
+                                @{Name = L "Enter new MAC manually"; Value = "1"}
+                                @{Name = L "Generate random MAC"; Value = "2"}
+                                @{Name = L "Restore original hardware MAC"; Value = "3"}
+                                @{Name = L "Back"; Value = "BACK"}
+                            )
+                            $actRes = Show-Menu -Title (L "MAC Address Spoofing") -Items $mItems -DefaultIndex $mIdx
+                            if ($actRes.Action -eq 'LangChange') { $mIdx = $actRes.Index; continue }
+                            break
+                        }
+                        if ($actRes.Action -ne 'Back') {
+                            $act = $actRes.Value
+                            $adapter = Get-NetAdapter -Name $iface
+                            $guid = $adapter.InterfaceGuid
+                            $regBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
+                            $regPath = ""
+                            foreach ($k in Get-ChildItem $regBase) {
+                                $val = Get-ItemProperty $k.PSPath -Name "NetCfgInstanceId" -ErrorAction SilentlyContinue
+                                if ($val.NetCfgInstanceId -eq $guid) { $regPath = $k.PSPath; break }
+                            }
+                            if ($regPath -ne "") {
+                                $newMac = ""
+                                if ($act -eq "1") {
+                                    $inputMac = Get-TextInput (L "Enter new MAC (no dashes, e.g. 001122334455)")
+                                    if ($inputMac -match '^[0-9A-Fa-f]{12}$') { $newMac = $inputMac } else { continue }
+                                } elseif ($act -eq "2") {
+                                    $chars = "0123456789ABCDEF"; $valid = "2","6","A","E"
+                                    $newMac = $chars[(Get-Random -Max 16)].ToString() + $valid[(Get-Random -Max 4)]
+                                    for ($i=0; $i -lt 10; $i++) { $newMac += $chars[(Get-Random -Max 16)] }
+                                }
+                                
+                                if ($act -eq "3") { Remove-ItemProperty -Path $regPath -Name "NetworkAddress" -ErrorAction SilentlyContinue } 
+                                else { Set-ItemProperty -Path $regPath -Name "NetworkAddress" -Value $newMac }
+                                
+                                try {
+                                    Disable-NetAdapter -Name $iface -Confirm:$false
+                                    Start-Sleep 1
+                                    Enable-NetAdapter -Name $iface -Confirm:$false
+                                    Show-Message @('Applying settings...', 'Success!') @('Cyan', 'Green')
+                                } catch { Show-Message @('Error applying settings.') @('Red') }
+                            }
                         }
                     }
                 }
+                11 { Scan-LAN }
+                12 { Optimize-MTU }
             }
-            11 { Scan-LAN }
-            12 { Optimize-MTU }
+        } catch {
+            Show-Message @("[КРИТИЧЕСКАЯ ОШИБКА / CRITICAL ERROR]", $_.Exception.Message) @("Red", "Red")
         }
     }
 }
 
-try { Main-Menu } catch {
-    Show-Message @("[КРИТИЧЕСКАЯ ОШИБКА / CRITICAL ERROR]", $_.Exception.Message) @("Red", "Red")
-}
+try { Main-Menu } catch {}
 try { [Console]::CursorVisible = $true } catch {}
