@@ -293,13 +293,31 @@ function Reset-Line {
     [Console]::SetCursorPosition(0, $y)
 }
 
-function Clear-Tail {
-    $y = [Console]::CursorTop
-    $max = $Host.UI.WindowSize.Height - 1
-    while ($y -lt $max) {
-        Reset-Line
-        Write-Host ""
-        $y++
+function Clear-Tail([int]$LastMaxY = 0) {
+    try {
+        $currentY = [Console]::CursorTop
+        $max = $Host.UI.WindowSize.Height - 1
+        if ($LastMaxY -gt $max) { $max = $LastMaxY }
+        
+        # Защита от бесконечной очистки при программных сбоях буфера
+        if ($max -gt $currentY + 100) { $max = $currentY + 100 }
+        
+        $y = $currentY
+        $w = $Host.UI.WindowSize.Width - 1
+        if ($w -lt 0) { $w = 110 }
+        $blank = " " * $w
+        
+        while ($y -le $max) {
+            try {
+                [Console]::SetCursorPosition(0, $y)
+                Write-Host $blank -NoNewline -BackgroundColor Black
+            } catch { break }
+            $y++
+        }
+        try { [Console]::SetCursorPosition(0, $currentY) } catch {}
+        return $currentY
+    } catch {
+        return 0
     }
 }
 
@@ -395,12 +413,14 @@ function Show-Menu {
     $lastWiFiScan = [DateTime]::MinValue
     $lastWinWidth = $Host.UI.WindowSize.Width
     $lastWinHeight = $Host.UI.WindowSize.Height
+    $lastY = 0
 
     while ($true) {
         if ($Host.UI.WindowSize.Width -ne $lastWinWidth -or $Host.UI.WindowSize.Height -ne $lastWinHeight) {
             $lastWinWidth = $Host.UI.WindowSize.Width
             $lastWinHeight = $Host.UI.WindowSize.Height
             Clear-Host
+            $lastY = 0
             $forceRedraw = $true
         }
 
@@ -475,7 +495,7 @@ function Show-Menu {
                 Write-Host "$prefix$paddedName" -ForegroundColor $fg -BackgroundColor $bg
             }
             
-            Clear-Tail
+            $lastY = Clear-Tail $lastY
             $forceRedraw = $false
         }
         
@@ -626,6 +646,7 @@ function Ensure-AdapterEnabled {
 function Show-Status {
     $blockW = 85
     Clear-Host 
+    $lastY = 0
     
     while ($true) {
         [Console]::SetCursorPosition(0, 0)
@@ -704,7 +725,7 @@ function Show-Status {
             Reset-Line; Write-Centered (L "No disabled adapters found") "DarkGray"
         }
 
-        Clear-Tail
+        $lastY = Clear-Tail $lastY
 
         $breakLoop = $false
         for ($i = 0; $i -lt 30; $i++) {
@@ -769,11 +790,13 @@ function Scan-LAN {
 
     Clear-Host
     $lastWinWidth = $Host.UI.WindowSize.Width
+    $lastY = 0
 
     while ($true) {
         if ($Host.UI.WindowSize.Width -ne $lastWinWidth) {
             $lastWinWidth = $Host.UI.WindowSize.Width
             Clear-Host
+            $lastY = 0
         }
 
         # 1. Запуск асинхронного пинга
@@ -904,7 +927,7 @@ function Scan-LAN {
             Reset-Line; [Console]::SetCursorPosition($startX, [Console]::CursorTop); Write-Host "----------------------------------------------------------------------" -ForegroundColor DarkCyan
         }
         
-        Clear-Tail
+        $lastY = Clear-Tail $lastY
 
         $breakLoop = $false
         for ($i=0; $i -lt 15; $i++) {
